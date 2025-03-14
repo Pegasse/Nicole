@@ -302,16 +302,18 @@ def parse_with_grok(message):
         "2. from_account: The source account (options: MC Cash, MC Bank, MC Mpesa, BE Cash, BE Bank, BE Mpesa, MCAsie Cash, Cash In Transit, Royalties Available, Expense Provisions, Fond de Caisse, Buying Petty Cash)\n"
         "3. to_account: The destination account (same options as from_account)\n"
         "4. purpose: The reason for the transfer\n"
-        "5. description: A brief summary of the transaction\n\n"
+        "5. description: A brief summary of the transaction\n"
+        "6. location: The branch for this transaction, determined by the from_account (MC accounts → MicroConcept, BE accounts → Bellissima, MCAsie accounts → MCAsie)\n\n"
         "Special Rules:\n"
         "- If the from_account contains 'MC', the location is MicroConcept\n"
         "- If the from_account contains 'BE', the location is Bellissima\n"
+        "- If the from_account contains 'MCAsie', the location is MCAsie\n"
         "- For transfers to MCAsie/RAC from any MC or BE account, automatically set to_account to 'Cash In Transit'\n"
         "- If destination is MCAsie/RAC but from_account isn't specified, assume 'Cash In Transit'\n"
         "- If from_account or to_account aren't clearly specified, set them to null\n"
         "- Normalize references to 'MCAsie', 'Asie', or 'RAC' as 'MCAsie Cash' for to_account\n"
         "- For withdrawals, if no to_account is specified, set it to a Cash account with a similar prefix to the from_account. For example, BE Bank to BE Cash\n\n"
-        "Return ONLY valid JSON with no other text: {\"amount\":X,\"from_account\":Y,\"to_account\":Z,\"purpose\":P,\"description\":D}"
+        "Return ONLY valid JSON with no other text: {\"amount\":X,\"from_account\":Y,\"to_account\":Z,\"purpose\":P,\"description\":D,\"location\":L}"
     )
     
     user_content = f"Parse this transfer request: {message}"
@@ -362,6 +364,18 @@ def parse_with_grok(message):
                                 # If to_account is MCAsie but from_account isn't specified
                                 parsed_data["from_account"] = "Cash In Transit"
                         
+                        # Determine location based on from_account if not already set
+                        if not parsed_data.get("location") and parsed_data.get("from_account"):
+                            from_account = str(parsed_data["from_account"]).upper()
+                            if "MC " in from_account and "MCAsie" not in from_account:
+                                parsed_data["location"] = "MicroConcept"
+                            elif "BE " in from_account:
+                                parsed_data["location"] = "Bellissima"
+                            elif "MCAsie" in from_account:
+                                parsed_data["location"] = "MCAsie"
+                            elif "CASH IN TRANSIT" in from_account:
+                                parsed_data["location"] = "MCAsie"
+                        
                         return parsed_data
                     except json.JSONDecodeError:
                         print(f"Error: Could not parse JSON from response: {content}")
@@ -390,6 +404,21 @@ def move_funds_to_cash_in_transit(parsed_data):
     to_account = parsed_data.get("to_account", "Cash In Transit")  # Default to Cash In Transit if not specified
     purpose = parsed_data.get("purpose", "Funds Transfer")
     description = parsed_data.get("description", f"Transfer for {purpose}")
+    
+    # Determine location based on from_account if not already provided
+    location = parsed_data.get("location")
+    if not location:
+        if "MC " in from_account and "MCAsie" not in from_account:
+            location = "MicroConcept"
+        elif "BE " in from_account:
+            location = "Bellissima"
+        elif "MCAsie" in from_account or from_account == "Cash In Transit":
+            location = "MCAsie"
+        else:
+            # Default to MicroConcept if we can't determine
+            location = "MicroConcept"
+    
+    print(f"Using location: {location} for transfer from {from_account} to {to_account}")
     
     # Map account names to Zoho Books account IDs
     account_id_map = {
@@ -428,7 +457,8 @@ def move_funds_to_cash_in_transit(parsed_data):
         "amount": amount,
         "reference_number": reference_number,
         "description": description,
-        "transaction_type": "transfer_fund"  # Specify that this is a transfer transaction
+        "transaction_type": "transfer_fund",  # Specify that this is a transfer transaction
+        "branch_id": location  # Include the branch/location
     }
     
     print(f"Sending transfer request: {payload}")
@@ -525,14 +555,16 @@ def handle_message(message, sender):
             to_account = parsed.get("to_account", "Cash In Transit")
             purpose = parsed.get("purpose", "")
             purpose_text = f" for '{purpose}'" if purpose else ""
+            location = parsed.get("location", "")
+            location_text = f" (at {location})" if location else ""
             
             # Success message
-            response_text = f"@{sender}: Successfully transferred ${parsed['amount']} from {from_account} to {to_account}{purpose_text}. Transaction ID: {transaction_id}"
+            response_text = f"@{sender}: Successfully transferred ${parsed['amount']} from {from_account} to {to_account}{purpose_text}{location_text}. Transaction ID: {transaction_id}"
             send_cliq_message("Nicole", response_text)
             
             # Also notify recipient if MCAsie/RAC
             if "MCAsie" in to_account or to_account == "Cash In Transit":
-                recipient_msg = f"RAC: {sender} sent ${parsed['amount']} from {from_account} to {to_account}{purpose_text}. Please confirm receipt."
+                recipient_msg = f"RAC: {sender} sent ${parsed['amount']} from {from_account} to {to_account}{purpose_text}{location_text}. Please confirm receipt."
                 send_cliq_message("Nicole", recipient_msg)
                 
             return {"status": "success", "text": response_text}
