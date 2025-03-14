@@ -18,6 +18,45 @@ app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'your-secret-key-here')  # R
 print("====== TheBrain.py - Starting up ======")
 print(f"Current working directory: {os.getcwd()}")
 
+# Debug function to check environment variables
+def print_environment_variables():
+    """Print environment variables to help debug issues with missing or malformed values"""
+    print("\n=== Environment Variables ===")
+    
+    print("\n-- API Keys and Authentication --")
+    print(f"GROK_API_KEY: {'✓ Set' if os.environ.get('GROK_API_KEY') else '✗ Missing'}")
+    print(f"ZOHO_ORG_ID: {'✓ Set' if os.environ.get('ZOHO_ORG_ID') else '✗ Missing'}")
+    print(f"ZOHO_CLIENT_ID: {'✓ Set' if os.environ.get('ZOHO_CLIENT_ID') else '✗ Missing'}")
+    print(f"ZOHO_CLIENT_SECRET: {'✓ Set' if os.environ.get('ZOHO_CLIENT_SECRET') else '✗ Missing'}")
+    print(f"ZOHO_REFRESH_TOKEN: {'✓ Set' if os.environ.get('ZOHO_REFRESH_TOKEN') else '✗ Missing'}")
+    print(f"ZOHO_REDIRECT_URI: {'✓ Set' if os.environ.get('ZOHO_REDIRECT_URI') else '✗ Missing'}")
+    
+    print("\n-- Account IDs --")
+    print(f"MC_CASH_ID: {'✓ Set' if os.environ.get('MC_CASH_ID') else '✗ Missing'}")
+    print(f"MC_BANK_ID: {'✓ Set' if os.environ.get('MC_BANK_ID') else '✗ Missing'}")
+    print(f"MC_MPESA_ID: {'✓ Set' if os.environ.get('MC_MPESA_ID') else '✗ Missing'}")
+    print(f"BE_CASH_ID: {'✓ Set' if os.environ.get('BE_CASH_ID') else '✗ Missing'}")
+    print(f"BE_BANK_ID: {'✓ Set' if os.environ.get('BE_BANK_ID') else '✗ Missing'}")
+    print(f"BE_MPESA_ID: {'✓ Set' if os.environ.get('BE_MPESA_ID') else '✗ Missing'}")
+    print(f"MCASIE_CASH_ID: {'✓ Set' if os.environ.get('MCASIE_CASH_ID') else '✗ Missing'}")
+    print(f"CASH_IN_TRANSIT_ID: {'✓ Set' if os.environ.get('CASH_IN_TRANSIT_ID') else '✗ Missing'}")
+    print(f"ROYALTIES_AVAILABLE_ID: {'✓ Set' if os.environ.get('ROYALTIES_AVAILABLE_ID') else '✗ Missing'}")
+    print(f"EXPENSE_PROVISIONS_ID: {'✓ Set' if os.environ.get('EXPENSE_PROVISIONS_ID') else '✗ Missing'}")
+    print(f"FOND_DE_CAISSE_ID: {'✓ Set' if os.environ.get('FOND_DE_CAISSE_ID') else '✗ Missing'}")
+    print(f"BUYING_PETTY_CASH_ID: {'✓ Set' if os.environ.get('BUYING_PETTY_CASH_ID') else '✗ Missing'}")
+    
+    print("\n-- Location IDs --")
+    print(f"MICROCONCEPT_ID: {'✓ Set' if os.environ.get('MICROCONCEPT_ID') else '✗ Missing'}")
+    print(f"BELLISSIMA_ID: {'✓ Set' if os.environ.get('BELLISSIMA_ID') else '✗ Missing'}")
+    print(f"MCASIE_ID: {'✓ Set' if os.environ.get('MCASIE_ID') else '✗ Missing'}")
+    print(f"BDMS_ID: {'✓ Set' if os.environ.get('BDMS_ID') else '✗ Missing'}")
+    
+    print("\n-- Server Configuration --")
+    print(f"PORT: {'✓ Set' if os.environ.get('PORT') else '✗ Missing (will use default)'}")
+    print(f"FLASK_SECRET_KEY: {'✓ Set' if os.environ.get('FLASK_SECRET_KEY') else '✗ Missing (will use default)'}")
+    print(f"APP_URL: {'✓ Set' if os.environ.get('APP_URL') else '✗ Missing (will derive from request)'}")
+    print("====================================\n")
+
 # Get the app URL from environment or construct from request
 def get_app_url():
     if os.environ.get('APP_URL'):
@@ -424,6 +463,13 @@ def move_funds_to_cash_in_transit(parsed_data):
             # Default to MicroConcept if we can't determine
             location_name = "MicroConcept"
     
+    # Check if environment variables for location IDs are set
+    print(f"Checking location ID environment variables:")
+    print(f"- MICROCONCEPT_ID: {'✓ Present' if MICROCONCEPT_ID else '✗ Missing'}")
+    print(f"- BELLISSIMA_ID: {'✓ Present' if BELLISSIMA_ID else '✗ Missing'}")
+    print(f"- MCASIE_ID: {'✓ Present' if MCASIE_ID else '✗ Missing'}")
+    print(f"- BDMS_ID: {'✓ Present' if BDMS_ID else '✗ Missing'}")
+    
     # Map location name to location ID
     location_id_map = {
         "MicroConcept": MICROCONCEPT_ID,
@@ -433,9 +479,12 @@ def move_funds_to_cash_in_transit(parsed_data):
     }
     
     location_id = location_id_map.get(location_name)
+    
+    # Verify that we have a valid ID, not just a string
     if not location_id:
-        print(f"Warning: Unknown location '{location_name}', defaulting to MicroConcept")
-        location_id = MICROCONCEPT_ID
+        error_msg = f"Missing location ID for '{location_name}'. Check your environment variables."
+        print(f"ERROR: {error_msg}")
+        return {"code": -1, "message": error_msg}
     
     print(f"Using location: {location_name} (ID: {location_id}) for transfer from {from_account} to {to_account}")
     
@@ -476,9 +525,12 @@ def move_funds_to_cash_in_transit(parsed_data):
         "amount": amount,
         "reference_number": reference_number,
         "description": description,
-        "transaction_type": "transfer_fund",  # Specify that this is a transfer transaction
-        "branch_id": location_id  # Use location ID instead of name
+        "transaction_type": "transfer_fund"  # Specify that this is a transfer transaction
     }
+    
+    # Only add branch_id if we have a valid ID (not None or empty string)
+    if location_id:
+        payload["branch_id"] = location_id
     
     print(f"Sending transfer request: {payload}")
     
@@ -630,6 +682,9 @@ def cliq_webhook():
 if __name__ == "__main__":
     # Get the port from environment variable or use default
     port = int(os.environ.get("PORT", 8080))
+    
+    # Print environment variables for debugging
+    print_environment_variables()
     
     # Check if we need to set up OAuth
     if not ZOHO_REFRESH_TOKEN:
