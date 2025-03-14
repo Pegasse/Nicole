@@ -480,13 +480,11 @@ def move_funds_to_cash_in_transit(parsed_data):
     
     location_id = location_id_map.get(location_name)
     
-    # Verify that we have a valid ID, not just a string
+    # We don't fail if location ID is missing, just log a warning
     if not location_id:
-        error_msg = f"Missing location ID for '{location_name}'. Check your environment variables."
-        print(f"ERROR: {error_msg}")
-        return {"code": -1, "message": error_msg}
-    
-    print(f"Using location: {location_name} (ID: {location_id}) for transfer from {from_account} to {to_account}")
+        print(f"WARNING: Missing location ID for '{location_name}'. Proceeding without branch_id.")
+    else:
+        print(f"Using location: {location_name} (ID: {location_id}) for transfer from {from_account} to {to_account}")
     
     # Map account names to Zoho Books account IDs
     account_id_map = {
@@ -528,11 +526,9 @@ def move_funds_to_cash_in_transit(parsed_data):
         "transaction_type": "transfer_fund"  # Specify that this is a transfer transaction
     }
     
-    # Only add branch_id if we have a valid ID (not None or empty string)
-    if location_id:
-        payload["branch_id"] = location_id
-    
-    print(f"Sending transfer request: {payload}")
+    # For the first attempt, don't include branch_id at all
+    # This gives the best chance of success for transfers between accounts
+    print(f"Initial sending transfer request (without branch_id): {payload}")
     
     try:
         # Use the correct endpoint for bank transactions
@@ -549,6 +545,33 @@ def move_funds_to_cash_in_transit(parsed_data):
         
         response = requests.post(full_url, headers=headers, json=payload)
         print(f"Response status code: {response.status_code}")
+        
+        # Check if we got a branch association error and have a valid location_id
+        if response.status_code == 400 and location_id:
+            try:
+                result = response.json()
+                error_message = result.get("message", "")
+                if "branch is not associated" in error_message.lower():
+                    print("Got branch association error, trying alternative approach...")
+                    
+                    # Try again with a different strategy based on the error
+                    if "bank" in error_message.lower():
+                        # For bank accounts, we may need a different approach
+                        print("This appears to be a bank account branch association error.")
+                        
+                        # Try without branch_id - this is our fallback
+                        # We already tried without branch_id initially
+                        return {"code": -1, "message": f"Bank account branch association error: {error_message}. Please use accounts associated with the correct branch."}
+                    else:
+                        # For other accounts, we might try with the branch_id
+                        print("Adding branch_id and retrying...")
+                        payload["branch_id"] = location_id
+                        
+                        # Try again with the branch_id added
+                        response = requests.post(full_url, headers=headers, json=payload)
+                        print(f"Retry response status code: {response.status_code}")
+            except Exception as e:
+                print(f"Error processing response: {e}")
         
         # Check if response is HTML (indicating a redirect)
         if response.headers.get('content-type', '').startswith('text/html'):
