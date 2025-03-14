@@ -1,0 +1,50 @@
+// Get the message text and sender details from the incoming message
+text = message;
+sender_id = user.get("id");
+sender_name = user.get("name");
+
+// Optional: Log the details for debugging
+info "Direct message received: " + message + " from " + sender_id;
+
+// Get webhook URL from environment variable or use default
+TheLink = getenv("WEBHOOK_URL", "https://6368-185-203-122-152.ngrok-free.app/webhook");
+
+// Create parameters as a map to send data to the webhook
+payload = Map();
+payload.put("message", message);
+payload.put("sender_id", sender_id);
+payload.put("sender_name", sender_name);
+
+// Convert the payload to a JSON string
+json_content = payload.toString();
+
+try {
+    // Call invokeurl with parameters to resolve the error
+    response_webhook = invokeurl
+    [
+        url :TheLink
+        type :POST
+        content-type: "application/json"
+        parameters: json_content
+    ];
+    
+    // Validate response
+    if response_webhook == null {
+        error "Webhook response is null";
+        return Map().put("text", "Sorry, I encountered an error processing your request. Please try again later.");
+    }
+    
+    // Check if response has text field
+    if !response_webhook.containsKey("text") {
+        error "Webhook response missing text field: " + response_webhook;
+        return Map().put("text", "Sorry, I received an invalid response. Please try again later.");
+    }
+    
+    // Prepare and return a response to the user in Zoho Cliq
+    response = Map();
+    response.put("text", response_webhook.get("text"));
+    return response;
+} catch (e) {
+    error "Error calling webhook: " + e;
+    return Map().put("text", "Sorry, I encountered an error processing your request. Please try again later.");
+}
