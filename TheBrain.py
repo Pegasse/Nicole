@@ -18,6 +18,12 @@ app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'your-secret-key-here')  # R
 print("====== TheBrain.py - Starting up ======")
 print(f"Current working directory: {os.getcwd()}")
 
+# Get the app URL from environment or construct from request
+def get_app_url():
+    if os.environ.get('APP_URL'):
+        return os.environ.get('APP_URL')
+    return request.host_url.rstrip('/') if request else 'http://localhost:8080'
+
 # Grok API setup
 GROK_API_URL = "https://api.x.ai/v1/chat/completions"  # Grok API URL
 GROK_API_KEY = os.environ.get("GROK_API_KEY")  # Get from environment variable
@@ -85,12 +91,16 @@ def auth():
     }
     auth_url = f"{auth_url}?{'&'.join(f'{k}={v}' for k,v in params.items())}"
     
+    app_url = get_app_url()
     return f"""
     <h1>Zoho OAuth Setup</h1>
     <p>Click the button below to authorize the application:</p>
     <a href="{auth_url}" style="display: inline-block; padding: 10px 20px; background-color: #4CAF50; color: white; text-decoration: none; border-radius: 5px;">
         Authorize with Zoho
     </a>
+    <p style="margin-top: 20px; color: #666;">
+        After authorization, you'll receive a refresh token. Copy it and update the ZOHO_REFRESH_TOKEN environment variable in your DigitalOcean App Platform settings.
+    </p>
     """
 
 @app.route("/callback")
@@ -103,14 +113,24 @@ def callback():
     # Exchange the code for tokens
     result = get_refresh_token(code)
     if result:
-        return """
+        app_url = get_app_url()
+        return f"""
         <h1>Success!</h1>
         <p>Your refresh token has been generated successfully.</p>
-        <p>Please update your environment variables with the following refresh token:</p>
-        <pre style="background-color: #f5f5f5; padding: 10px; border-radius: 5px;">{}</pre>
+        <p>Please follow these steps:</p>
+        <ol>
+            <li>Copy the refresh token below</li>
+            <li>Go to your DigitalOcean App Platform dashboard</li>
+            <li>Select your app</li>
+            <li>Go to Settings > Environment Variables</li>
+            <li>Update the ZOHO_REFRESH_TOKEN variable with the new token</li>
+            <li>Save the changes and redeploy your app</li>
+        </ol>
+        <p>Your refresh token:</p>
+        <pre style="background-color: #f5f5f5; padding: 10px; border-radius: 5px;">{result['refresh_token']}</pre>
         <p>You can now close this window.</p>
         <script>window.close();</script>
-        """.format(result['refresh_token'])
+        """
     else:
         return "Error: Failed to get refresh token", 500
 
@@ -202,11 +222,12 @@ def refresh_zoho_token():
                             print("ERROR: Your Client ID or Client Secret is invalid. Please regenerate them in Zoho Developer Console.")
                             print("Go to: https://api-console.zoho.com/ and update your credentials.")
                         elif error_type == "invalid_code" or error_type == "invalid_grant":
-                            print("ERROR: Your Refresh Token is invalid or expired. Please generate a new one.")
-                            print("To generate a new refresh token:")
-                            print("1. Visit: http://localhost:5000/auth")
-                            print("2. Follow the OAuth flow to get a new refresh token")
-                            print("3. Update the ZOHO_REFRESH_TOKEN in your code")
+                            app_url = get_app_url()
+                            print(f"ERROR: Your Refresh Token is invalid or expired. Please generate a new one.")
+                            print(f"To generate a new refresh token:")
+                            print(f"1. Visit: {app_url}/auth")
+                            print(f"2. Follow the OAuth flow to get a new refresh token")
+                            print(f"3. Update the ZOHO_REFRESH_TOKEN in your DigitalOcean App Platform environment variables")
                     return False
                 
                 ZOHO_TOKEN = token_data["access_token"]
@@ -233,11 +254,12 @@ def refresh_zoho_token():
                             print("ERROR: Your Client ID or Client Secret is invalid. Please regenerate them in Zoho Developer Console.")
                             print("Go to: https://api-console.zoho.com/ and update your credentials.")
                         elif error_data["error"] == "invalid_code" or error_data["error"] == "invalid_grant":
-                            print("ERROR: Your Refresh Token is invalid or expired. Please generate a new one.")
-                            print("To generate a new refresh token:")
-                            print("1. Visit: http://localhost:5000/auth")
-                            print("2. Follow the OAuth flow to get a new refresh token")
-                            print("3. Update the ZOHO_REFRESH_TOKEN in your code")
+                            app_url = get_app_url()
+                            print(f"ERROR: Your Refresh Token is invalid or expired. Please generate a new one.")
+                            print(f"To generate a new refresh token:")
+                            print(f"1. Visit: {app_url}/auth")
+                            print(f"2. Follow the OAuth flow to get a new refresh token")
+                            print(f"3. Update the ZOHO_REFRESH_TOKEN in your DigitalOcean App Platform environment variables")
                 except Exception:
                     pass
             return False
