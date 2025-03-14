@@ -1,0 +1,34 @@
+Internal Fund Transfer
+
+Context:
+MicroConcept is a computer shop.
+Bellissima is a gift shop.
+Zongo Fever is a hotel booking agency.
+MCAsie is the purchasing office.
+MC = MicroConcept
+BE = Bellissima
+MCA = MCAsie
+ZF = Zongo Fever
+RAC = Purchasing Officer working at MCAsie
+
+Cash Accounts:
+MC Cash: This is the main cash account for MicroConcept.
+MC Bank: This is the MicroConcept bank account.
+MC Mpesa: This is the MicroConcept mobile money account. Sometimes spelled m-pesa.
+BE Cash: This is the main cash account for Bellissima.
+BE Bank: This is the Bellissima bank account.
+BE Mpesa: This is the Bellissima.
+MCAsie Cash: This is the cash account of MCAsie.
+Cash In Transit: Temporary account where all transfers going to MCAsie go first.
+Royalties Available: Cash account for royalties.
+Expense Provisions: Main Cash account for expenses.
+Fond de Caisse: Petty cash account for expenses.
+Buying Petty Cash: Account used for spending during buying trips.
+
+Instructions:
+Determine the from account and to account. The location is based on the from account. If the from account has MC than the location is MicroConcept. If BE, than it is Bellissima.
+Set the description as the interpretation of the request. For example, if asked, Withdraw $50 from the MC Bank Account, the description would be Bank Withdrawal. 
+
+Special Cases:
+Transfers from either an MC account or a BE account towards an MCAsie account will have the to account be set to Cash In Transit.
+If MCAsie receives an amount of money than the from account is by default Cash In Transit unless specified otherwise.

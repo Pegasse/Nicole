@@ -64,8 +64,17 @@ ZOHO_HEADERS = {
 
 # Account IDs for the transfer
 MC_CASH_ID = os.environ.get("MC_CASH_ID")
-CASH_IN_TRANSIT_ID = os.environ.get("CASH_IN_TRANSIT_ID")
+MC_BANK_ID = os.environ.get("MC_BANK_ID")
+MC_MPESA_ID = os.environ.get("MC_MPESA_ID")
+BE_CASH_ID = os.environ.get("BE_CASH_ID")
+BE_BANK_ID = os.environ.get("BE_BANK_ID")
+BE_MPESA_ID = os.environ.get("BE_MPESA_ID")
 MCASIE_CASH_ID = os.environ.get("MCASIE_CASH_ID")
+CASH_IN_TRANSIT_ID = os.environ.get("CASH_IN_TRANSIT_ID")
+ROYALTIES_AVAILABLE_ID = os.environ.get("ROYALTIES_AVAILABLE_ID")
+EXPENSE_PROVISIONS_ID = os.environ.get("EXPENSE_PROVISIONS_ID")
+FOND_DE_CAISSE_ID = os.environ.get("FOND_DE_CAISSE_ID")
+BUYING_PETTY_CASH_ID = os.environ.get("BUYING_PETTY_CASH_ID")
 
 # Cliq webhook port
 CLIQ_WEBHOOK_PORT = 5000
@@ -287,13 +296,24 @@ def parse_with_grok(message):
     
     # Format the prompt as a system and user message for chat completions API
     system_content = (
-        "You are a financial transaction parser that extracts information into JSON format. "
-        "Extract amount (number only), recipient (RAC or MC), and purpose. "
-        "For recipient, normalize to 'RAC' or 'MC' (for MCAsie/Asie). Use null for missing info. "
-        "Return ONLY valid JSON with no other text: {\"amount\":X,\"recipient\":Y,\"purpose\":Z}"
+        "You are a financial transaction parser for an organization with multiple business units and accounts. "
+        "Extract the following information into JSON format:\n"
+        "1. amount: (number only)\n"
+        "2. from_account: The source account (options: MC Cash, MC Bank, MC Mpesa, BE Cash, BE Bank, BE Mpesa, MCAsie Cash, Cash In Transit, Royalties Available, Expense Provisions, Fond de Caisse, Buying Petty Cash)\n"
+        "3. to_account: The destination account (same options as from_account)\n"
+        "4. purpose: The reason for the transfer\n"
+        "5. description: A brief summary of the transaction\n\n"
+        "Special Rules:\n"
+        "- If the from_account contains 'MC', the location is MicroConcept\n"
+        "- If the from_account contains 'BE', the location is Bellissima\n"
+        "- For transfers to MCAsie/RAC from any MC or BE account, automatically set to_account to 'Cash In Transit'\n"
+        "- If destination is MCAsie/RAC but from_account isn't specified, assume 'Cash In Transit'\n"
+        "- If from_account or to_account aren't clearly specified, set them to null\n"
+        "- Normalize references to 'MCAsie', 'Asie', or 'RAC' as 'MCAsie Cash' for to_account\n\n"
+        "Return ONLY valid JSON with no other text: {\"amount\":X,\"from_account\":Y,\"to_account\":Z,\"purpose\":P,\"description\":D}"
     )
     
-    user_content = f"Parse this request: {message}"
+    user_content = f"Parse this transfer request: {message}"
     
     payload = {
         "model": "grok-2-latest",
@@ -301,7 +321,7 @@ def parse_with_grok(message):
             {"role": "system", "content": system_content},
             {"role": "user", "content": user_content}
         ],
-        "max_tokens": 150,
+        "max_tokens": 200,
         "temperature": 0.1  # Lower temperature for more predictable output
     }
     
@@ -330,7 +350,16 @@ def parse_with_grok(message):
                             # Remove any non-numeric characters except decimal point
                             amount_str = ''.join(c for c in parsed_data["amount"] if c.isdigit() or c == '.')
                             if amount_str:
-                                parsed_data["amount"] = amount_str
+                                parsed_data["amount"] = float(amount_str)
+                        
+                        # Apply special transfer rules
+                        if parsed_data.get("to_account") and any(x in str(parsed_data["to_account"]).upper() for x in ["MCASIE", "RAC", "ASIE"]):
+                            if parsed_data.get("from_account") and any(x in str(parsed_data["from_account"]).upper() for x in ["MC ", "BE "]):
+                                # For transfers from MC or BE to MCAsie, set to_account to Cash In Transit
+                                parsed_data["to_account"] = "Cash In Transit"
+                            elif not parsed_data.get("from_account"):
+                                # If to_account is MCAsie but from_account isn't specified
+                                parsed_data["from_account"] = "Cash In Transit"
                         
                         return parsed_data
                     except json.JSONDecodeError:
@@ -347,12 +376,45 @@ def parse_with_grok(message):
         return {}
 
 # Function to move funds to Cash in Transit in Zoho Books
-def move_funds_to_cash_in_transit(amount, purpose):
+def move_funds_to_cash_in_transit(parsed_data):
     try:
         # Ensure we have a valid token before making the API call
         ensure_valid_token()
     except Exception as e:
         return {"code": -1, "message": f"Token validation failed: {str(e)}"}
+    
+    # Extract data from parsed result
+    amount = parsed_data.get("amount")
+    from_account = parsed_data.get("from_account", "MC Cash")  # Default to MC Cash if not specified
+    to_account = parsed_data.get("to_account", "Cash In Transit")  # Default to Cash In Transit if not specified
+    purpose = parsed_data.get("purpose", "Funds Transfer")
+    description = parsed_data.get("description", f"Transfer for {purpose}")
+    
+    # Map account names to Zoho Books account IDs
+    account_id_map = {
+        "MC Cash": MC_CASH_ID,
+        "MC Bank": MC_BANK_ID,
+        "MC Mpesa": MC_MPESA_ID,
+        "BE Cash": BE_CASH_ID,
+        "BE Bank": BE_BANK_ID,
+        "BE Mpesa": BE_MPESA_ID,
+        "MCAsie Cash": MCASIE_CASH_ID,
+        "Cash In Transit": CASH_IN_TRANSIT_ID,
+        "Royalties Available": ROYALTIES_AVAILABLE_ID,
+        "Expense Provisions": EXPENSE_PROVISIONS_ID,
+        "Fond de Caisse": FOND_DE_CAISSE_ID,
+        "Buying Petty Cash": BUYING_PETTY_CASH_ID
+    }
+    
+    # Get account IDs
+    from_account_id = account_id_map.get(from_account)
+    to_account_id = account_id_map.get(to_account)
+    
+    # Validate account IDs
+    if not from_account_id:
+        return {"code": -1, "message": f"Unknown from account: {from_account}"}
+    if not to_account_id:
+        return {"code": -1, "message": f"Unknown to account: {to_account}"}
     
     current_date = date.today().isoformat()
     reference_number = f"TRANSFER-{date.today().strftime('%Y%m%d')}-{int(datetime.now().timestamp()) % 10000}"
@@ -360,11 +422,11 @@ def move_funds_to_cash_in_transit(amount, purpose):
     # Format payload according to Zoho Books API documentation for bank transactions
     payload = {
         "date": current_date,
-        "from_account_id": MC_CASH_ID,
-        "to_account_id": CASH_IN_TRANSIT_ID,
+        "from_account_id": from_account_id,
+        "to_account_id": to_account_id,
         "amount": amount,
         "reference_number": reference_number,
-        "description": f"Transfer for {purpose}",
+        "description": description,
         "transaction_type": "transfer_fund"  # Specify that this is a transfer transaction
     }
     
@@ -432,38 +494,24 @@ def send_cliq_message(channel, text):
 # Main logic to handle messages
 def handle_message(message, sender):
     parsed = parse_with_grok(message)
-    amount_str = parsed.get("amount")
-    recipient = parsed.get("recipient")
-    purpose = parsed.get("purpose")
     print(f"Parsed data: {parsed}")
     
     # Prepare response message
     response_text = ""
     
     # Check if we have minimum required information
-    if not amount_str and not purpose:
-        response_text = f"@{sender}: I couldn't understand your request. Please include an amount and purpose."
-        send_cliq_message("Nicole", response_text)
-        return {"status": "error", "text": response_text}
-    
-    # If we're missing just the amount
-    if not amount_str:
-        response_text = f"@{sender}: Please specify the amount to transfer for '{purpose}'."
-        send_cliq_message("Nicole", response_text)
-        return {"status": "error", "text": response_text}
-    
-    # If we're missing just the recipient
-    if not recipient:
-        response_text = f"@{sender}: Please specify who should receive the ${amount_str} for '{purpose}'."
+    if not parsed.get("amount"):
+        response_text = f"@{sender}: I couldn't understand your request. Please include an amount to transfer."
         send_cliq_message("Nicole", response_text)
         return {"status": "error", "text": response_text}
     
     try:
-        # Convert amount to float
-        amount = float(amount_str)
+        # Convert amount to float if it's not already
+        if not isinstance(parsed.get("amount"), (int, float)):
+            parsed["amount"] = float(parsed.get("amount"))
         
         # Proceed with transfer
-        result = move_funds_to_cash_in_transit(amount, purpose)
+        result = move_funds_to_cash_in_transit(parsed)
         
         if result.get("code") == 0:  # Zoho API success code
             # Get transaction ID if available
@@ -471,24 +519,30 @@ def handle_message(message, sender):
             if "banktransfer" in result:
                 transaction_id = result["banktransfer"].get("banktransfer_id", "Unknown")
             
+            # Extract accounts for message
+            from_account = parsed.get("from_account", "MC Cash")
+            to_account = parsed.get("to_account", "Cash In Transit")
+            purpose = parsed.get("purpose", "")
+            purpose_text = f" for '{purpose}'" if purpose else ""
+            
             # Success message
-            response_text = f"@{sender}: Successfully transferred ${amount} to Cash in Transit for '{purpose}'. Transaction ID: {transaction_id}"
+            response_text = f"@{sender}: Successfully transferred ${parsed['amount']} from {from_account} to {to_account}{purpose_text}. Transaction ID: {transaction_id}"
             send_cliq_message("Nicole", response_text)
             
-            # Also notify recipient if RAC
-            if recipient.upper() == "RAC":
-                recipient_msg = f"RAC: {sender} sent ${amount} for '{purpose}'. Please confirm receipt."
+            # Also notify recipient if MCAsie/RAC
+            if "MCAsie" in to_account or to_account == "Cash In Transit":
+                recipient_msg = f"RAC: {sender} sent ${parsed['amount']} from {from_account} to {to_account}{purpose_text}. Please confirm receipt."
                 send_cliq_message("Nicole", recipient_msg)
                 
             return {"status": "success", "text": response_text}
         else:
             # Error message
             error_msg = result.get("message", "Unknown error")
-            response_text = f"@{sender}: Error moving funds: {error_msg}"
+            response_text = f"@{sender}: Error processing transfer: {error_msg}"
             send_cliq_message("Nicole", response_text)
             return {"status": "error", "text": response_text}
-    except ValueError:
-        response_text = f"@{sender}: Invalid amount format: '{amount_str}'. Please provide a valid number."
+    except ValueError as e:
+        response_text = f"@{sender}: Invalid amount format: '{parsed.get('amount')}'. Please provide a valid number."
         send_cliq_message("Nicole", response_text)
         return {"status": "error", "text": response_text}
 
