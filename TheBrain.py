@@ -1,6 +1,6 @@
 import requests
 import json
-from flask import Flask, request, redirect, url_for
+from flask import Flask, request, redirect, url_for, session
 from datetime import date, datetime, timedelta
 import os
 import webbrowser
@@ -12,6 +12,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 app = Flask(__name__)
+app.secret_key = os.environ.get('FLASK_SECRET_KEY', 'your-secret-key-here')  # Required for session management
 
 # Add debugging information at startup
 print("====== TheBrain.py - Starting up ======")
@@ -66,26 +67,11 @@ CLIQ_WEBHOOK_PORT = 5000
 # Global variable to store the authorization code
 auth_code = None
 
-@app.route("/callback")
-def callback():
-    """Handle the OAuth callback from Zoho"""
-    global auth_code
-    auth_code = request.args.get("code")
-    if not auth_code:
-        return "Error: No authorization code received", 400
-    
-    return """
-    <h1>Authorization Code Received!</h1>
-    <p>You can now close this window and return to the terminal.</p>
-    <script>
-        window.close();
-    </script>
-    """
-
-def get_initial_code():
-    """Get the initial authorization code from Zoho"""
-    global auth_code
-    auth_code = None
+@app.route("/auth")
+def auth():
+    """Initiate the OAuth flow"""
+    if not ZOHO_CLIENT_ID or not ZOHO_REDIRECT_URI:
+        return "Error: Missing OAuth configuration", 500
     
     # Generate the authorization URL
     auth_url = "https://accounts.zoho.com/oauth/v2/auth"
@@ -99,10 +85,34 @@ def get_initial_code():
     }
     auth_url = f"{auth_url}?{'&'.join(f'{k}={v}' for k,v in params.items())}"
     
-    print("\nPlease visit this URL to authorize the application:")
-    print(auth_url)
+    return f"""
+    <h1>Zoho OAuth Setup</h1>
+    <p>Click the button below to authorize the application:</p>
+    <a href="{auth_url}" style="display: inline-block; padding: 10px 20px; background-color: #4CAF50; color: white; text-decoration: none; border-radius: 5px;">
+        Authorize with Zoho
+    </a>
+    """
+
+@app.route("/callback")
+def callback():
+    """Handle the OAuth callback from Zoho"""
+    code = request.args.get("code")
+    if not code:
+        return "Error: No authorization code received", 400
     
-    return auth_code
+    # Exchange the code for tokens
+    result = get_refresh_token(code)
+    if result:
+        return """
+        <h1>Success!</h1>
+        <p>Your refresh token has been generated successfully.</p>
+        <p>Please update your environment variables with the following refresh token:</p>
+        <pre style="background-color: #f5f5f5; padding: 10px; border-radius: 5px;">{}</pre>
+        <p>You can now close this window.</p>
+        <script>window.close();</script>
+        """.format(result['refresh_token'])
+    else:
+        return "Error: Failed to get refresh token", 500
 
 def get_refresh_token(code):
     """Exchange authorization code for refresh token"""
@@ -148,27 +158,6 @@ def get_refresh_token(code):
         print(f"Error parsing response: {e}")
         print(f"Raw response: {response.text}")
         return None
-
-def setup_zoho_auth():
-    """Main function to handle the OAuth setup process"""
-    print("\n=== Zoho OAuth Setup ===")
-    print("This will help you get a new refresh token for Zoho Books API.")
-    
-    # Get the initial authorization code
-    code = get_initial_code()
-    if not code:
-        print("Failed to get authorization code.")
-        return False
-    
-    # Exchange the code for tokens
-    result = get_refresh_token(code)
-    if result:
-        print("\nTokens have been automatically updated in the code.")
-        print("You can now use the application.")
-        return True
-    else:
-        print("\nFailed to get refresh token. Please try again.")
-        return False
 
 # Function to refresh the Zoho token
 def refresh_zoho_token():
@@ -517,7 +506,7 @@ if __name__ == "__main__":
     # Check if we need to set up OAuth
     if not ZOHO_REFRESH_TOKEN:
         print("\nNo valid refresh token found. Starting OAuth setup...")
-        if setup_zoho_auth():
+        if refresh_zoho_token():
             print("\nOAuth setup completed successfully!")
         else:
             print("\nOAuth setup failed. Please try again.")
