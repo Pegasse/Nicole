@@ -309,7 +309,8 @@ def parse_with_grok(message):
         "- For transfers to MCAsie/RAC from any MC or BE account, automatically set to_account to 'Cash In Transit'\n"
         "- If destination is MCAsie/RAC but from_account isn't specified, assume 'Cash In Transit'\n"
         "- If from_account or to_account aren't clearly specified, set them to null\n"
-        "- Normalize references to 'MCAsie', 'Asie', or 'RAC' as 'MCAsie Cash' for to_account\n\n"
+        "- Normalize references to 'MCAsie', 'Asie', or 'RAC' as 'MCAsie Cash' for to_account\n"
+        "- For withdrawals, if no to_account is specified, set it to a Cash account with a similar prefix to the from_account. For example, BE Bank to BE Cash\n\n"
         "Return ONLY valid JSON with no other text: {\"amount\":X,\"from_account\":Y,\"to_account\":Z,\"purpose\":P,\"description\":D}"
     )
     
