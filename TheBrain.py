@@ -6,15 +6,10 @@ import os
 import webbrowser
 import threading
 import time
+from dotenv import load_dotenv
 
-# ====== IMPORTANT: ZOHO API CREDENTIALS SETUP ======
-# If you encounter "invalid_client" or "invalid_code" errors:
-# 1. Go to https://api-console.zoho.com/
-# 2. Select your application or create a new one
-# 3. Generate a self-client token by clicking "Generate Code" 
-# 4. For the scope, use "ZohoBooks.fullaccess.all"
-# 5. Update the ZOHO_CLIENT_ID, ZOHO_CLIENT_SECRET, and ZOHO_REFRESH_TOKEN below
-# ===================================================
+# Load environment variables
+load_dotenv()
 
 app = Flask(__name__)
 
@@ -24,7 +19,7 @@ print(f"Current working directory: {os.getcwd()}")
 
 # Grok API setup
 GROK_API_URL = "https://api.x.ai/v1/chat/completions"  # Grok API URL
-GROK_API_KEY = "xai-x6xw570Xz2Bxd9uBiNf9dhd5hntUexpKimXWc85a8QYbcBLMaaUWDXCNxfFLsXWtqDtvml32YkXKuJRw"  # Your Grok API key
+GROK_API_KEY = os.environ.get("GROK_API_KEY")  # Get from environment variable
 GROK_HEADERS = {
     "Authorization": f"Bearer {GROK_API_KEY}",
     "Content-Type": "application/json",
@@ -32,42 +27,38 @@ GROK_HEADERS = {
 
 # Zoho Books API setup
 ZOHO_API_URL = "https://www.zohoapis.com/books/v3"
-ZOHO_ORG_ID = "880025675"  # Your Zoho Org ID
+ZOHO_ORG_ID = os.environ.get("ZOHO_ORG_ID")  # Get from environment variable
 print(f"Zoho organization ID: {ZOHO_ORG_ID}")
 
 # Zoho OAuth configuration
-# These credentials should be updated if you get an "invalid_client" error
-# Generate new credentials at https://api-console.zoho.com/
-ZOHO_CLIENT_ID = os.environ.get("ZOHO_CLIENT_ID", "1000.5U3WUTZJPNVRB6FPNB4LMXYJN9N4GC")
-ZOHO_CLIENT_SECRET = os.environ.get("ZOHO_CLIENT_SECRET", "eb9b1d5dbc5abbd22e9e2a7da48c02ad61fa99a2d9")
+ZOHO_CLIENT_ID = os.environ.get("ZOHO_CLIENT_ID")
+ZOHO_CLIENT_SECRET = os.environ.get("ZOHO_CLIENT_SECRET")
 ZOHO_SCOPE = "ZohoBooks.fullaccess.all"
-ZOHO_REDIRECT_URI = "https://0add-185-203-122-107.ngrok-free.app/callback"
+ZOHO_REDIRECT_URI = os.environ.get("ZOHO_REDIRECT_URI")  # Get from environment variable
 
 # Add your refresh token here - this is required for token refresh to work
-# This refresh token needs to be generated for the same client ID above
-ZOHO_REFRESH_TOKEN = os.environ.get("ZOHO_REFRESH_TOKEN", "1000.91c418adad92c23f178df1da76a7bac5.ca2a13216dcc884b3dd0b2b9359f1ed5")
+ZOHO_REFRESH_TOKEN = os.environ.get("ZOHO_REFRESH_TOKEN")
 
 # Report on credential status
 print(f"Zoho Credentials Status:")
 print(f"- Client ID: {'✓ Present' if ZOHO_CLIENT_ID else '✗ Missing'}")
 print(f"- Client Secret: {'✓ Present' if ZOHO_CLIENT_SECRET else '✗ Missing'}")
 print(f"- Refresh Token: {'✓ Present' if ZOHO_REFRESH_TOKEN else '✗ Missing'}")
-print(f"- Client ID Length: {len(ZOHO_CLIENT_ID)}")
-print(f"- Client Secret Length: {len(ZOHO_CLIENT_SECRET)}") # Should typically be 64 characters
+print(f"- Redirect URI: {'✓ Present' if ZOHO_REDIRECT_URI else '✗ Missing'}")
 
 # Current token and expiry
-ZOHO_TOKEN = None  # Initialize as None instead of using refresh token
+ZOHO_TOKEN = None
 print("Initial access token: None (will be refreshed on first use)")
-ZOHO_TOKEN_EXPIRY = datetime.now() - timedelta(minutes=5)  # Set to expired so it forces a refresh on first use
+ZOHO_TOKEN_EXPIRY = datetime.now() - timedelta(minutes=5)
 
 ZOHO_HEADERS = {
     "Content-Type": "application/json",
 }
 
 # Account IDs for the transfer
-MC_CASH_ID = "6122712000000091463"  # MC Cash account ID
-CASH_IN_TRANSIT_ID = "6122712000000091501"  # Cash in Transit account ID
-MCASIE_CASH_ID = "6122712000000091505"  # MCAsie Cash account ID (for future confirmation logic)
+MC_CASH_ID = os.environ.get("MC_CASH_ID")
+CASH_IN_TRANSIT_ID = os.environ.get("CASH_IN_TRANSIT_ID")
+MCASIE_CASH_ID = os.environ.get("MCASIE_CASH_ID")
 
 # Cliq webhook port
 CLIQ_WEBHOOK_PORT = 5000
@@ -96,14 +87,6 @@ def get_initial_code():
     global auth_code
     auth_code = None
     
-    # Start Flask server in a separate thread
-    def run_flask():
-        app.run(port=CLIQ_WEBHOOK_PORT, use_reloader=False)
-    
-    flask_thread = threading.Thread(target=run_flask)
-    flask_thread.daemon = True
-    flask_thread.start()
-    
     # Generate the authorization URL
     auth_url = "https://accounts.zoho.com/oauth/v2/auth"
     params = {
@@ -116,12 +99,8 @@ def get_initial_code():
     }
     auth_url = f"{auth_url}?{'&'.join(f'{k}={v}' for k,v in params.items())}"
     
-    print("\nOpening browser for Zoho authorization...")
-    webbrowser.open(auth_url)
-    
-    print("\nWaiting for authorization code...")
-    while auth_code is None:
-        time.sleep(1)
+    print("\nPlease visit this URL to authorize the application:")
+    print(auth_url)
     
     return auth_code
 
@@ -532,8 +511,11 @@ def cliq_webhook():
         return {"status": "error", "text": error_message}
 
 if __name__ == "__main__":
+    # Get the port from environment variable or use default
+    port = int(os.environ.get("PORT", 8080))
+    
     # Check if we need to set up OAuth
-    if not ZOHO_REFRESH_TOKEN or ZOHO_REFRESH_TOKEN == "1000.91c418adad92c23f178df1da76a7bac5.ca2a13216dcc884b3dd0b2b9359f1ed5":
+    if not ZOHO_REFRESH_TOKEN:
         print("\nNo valid refresh token found. Starting OAuth setup...")
         if setup_zoho_auth():
             print("\nOAuth setup completed successfully!")
@@ -543,4 +525,4 @@ if __name__ == "__main__":
     
     # Start the main webhook server
     print("\nStarting webhook server...")
-    app.run(port=CLIQ_WEBHOOK_PORT)
+    app.run(host='0.0.0.0', port=port)
