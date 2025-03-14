@@ -76,6 +76,12 @@ EXPENSE_PROVISIONS_ID = os.environ.get("EXPENSE_PROVISIONS_ID")
 FOND_DE_CAISSE_ID = os.environ.get("FOND_DE_CAISSE_ID")
 BUYING_PETTY_CASH_ID = os.environ.get("BUYING_PETTY_CASH_ID")
 
+# Location IDs for branch_id parameter
+MICROCONCEPT_ID = os.environ.get("MICROCONCEPT_ID")
+BELLISSIMA_ID = os.environ.get("BELLISSIMA_ID")
+MCASIE_ID = os.environ.get("MCASIE_ID") 
+BDMS_ID = os.environ.get("BDMS_ID")
+
 # Cliq webhook port
 CLIQ_WEBHOOK_PORT = 5000
 
@@ -406,19 +412,32 @@ def move_funds_to_cash_in_transit(parsed_data):
     description = parsed_data.get("description", f"Transfer for {purpose}")
     
     # Determine location based on from_account if not already provided
-    location = parsed_data.get("location")
-    if not location:
+    location_name = parsed_data.get("location")
+    if not location_name:
         if "MC " in from_account and "MCAsie" not in from_account:
-            location = "MicroConcept"
+            location_name = "MicroConcept"
         elif "BE " in from_account:
-            location = "Bellissima"
+            location_name = "Bellissima"
         elif "MCAsie" in from_account or from_account == "Cash In Transit":
-            location = "MCAsie"
+            location_name = "MCAsie"
         else:
             # Default to MicroConcept if we can't determine
-            location = "MicroConcept"
+            location_name = "MicroConcept"
     
-    print(f"Using location: {location} for transfer from {from_account} to {to_account}")
+    # Map location name to location ID
+    location_id_map = {
+        "MicroConcept": MICROCONCEPT_ID,
+        "Bellissima": BELLISSIMA_ID,
+        "MCAsie": MCASIE_ID,
+        "BDMS": BDMS_ID
+    }
+    
+    location_id = location_id_map.get(location_name)
+    if not location_id:
+        print(f"Warning: Unknown location '{location_name}', defaulting to MicroConcept")
+        location_id = MICROCONCEPT_ID
+    
+    print(f"Using location: {location_name} (ID: {location_id}) for transfer from {from_account} to {to_account}")
     
     # Map account names to Zoho Books account IDs
     account_id_map = {
@@ -458,7 +477,7 @@ def move_funds_to_cash_in_transit(parsed_data):
         "reference_number": reference_number,
         "description": description,
         "transaction_type": "transfer_fund",  # Specify that this is a transfer transaction
-        "branch_id": location  # Include the branch/location
+        "branch_id": location_id  # Use location ID instead of name
     }
     
     print(f"Sending transfer request: {payload}")
