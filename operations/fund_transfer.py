@@ -126,16 +126,22 @@ class FundTransferHandler:
             result = self.execute_transfer(amount, from_account_id, to_account_id)
             
             # Send success message, but don't fail if message sending fails
-            response_text = f"@{sender_name}: Successfully transferred {amount} from {original_from} to {original_to}"
+            if "second_transaction" in result:
+                # This was a two-step transfer
+                response_text = f"@{sender_name}: Successfully transferred {amount} from {original_from} to {original_to} via Cash In Transit"
+            else:
+                response_text = f"@{sender_name}: Successfully transferred {amount} from {original_from} to {original_to}"
+                
             self.cliq_sender.send_message("Nicole", response_text)
             
-            # Return successful result
+            # Return successful result with transaction info
             return {
                 "status": "success", 
                 "message": response_text, 
                 "amount": amount, 
                 "from_account": original_from, 
-                "to_account": original_to
+                "to_account": original_to,
+                "transactions": result
             }
             
         except Exception as e:
@@ -159,42 +165,113 @@ class FundTransferHandler:
             }
     
     def execute_transfer(self, amount, from_account_id, to_account_id):
-        """Execute the fund transfer in Zoho Books"""
+        """Execute the fund transfer in Zoho Books using Cash In Transit as intermediary"""
         try:
             # Format the date and reference number like in old_brain.py
             current_date = date.today().isoformat()
             reference_number = f"TRANSFER-{date.today().strftime('%Y%m%d')}-{int(datetime.now().timestamp()) % 10000}"
             
-            # Prepare the transfer payload exactly like in old_brain.py
-            payload = {
+            # Get Cash In Transit account ID
+            cash_in_transit_id = Config.CASH_IN_TRANSIT_ID
+            
+            if not cash_in_transit_id:
+                raise Exception("Cash In Transit account ID is missing")
+            
+            logger.info(f"Executing transfer: {from_account_id} to {to_account_id} for amount {amount} via Cash In Transit")
+                
+            # Check if this is a transfer to/from MCAsie
+            is_mcasie_transfer = any(value == to_account_id for key, value in self.account_ids.items() if 'mcasie' in key.lower())
+            
+            # For MCAsie transfers, we can try a direct transfer
+            if is_mcasie_transfer and cash_in_transit_id == to_account_id:
+                logger.info(f"Direct transfer to Cash In Transit")
+                return self._execute_single_transaction(amount, from_account_id, to_account_id, current_date, reference_number)
+            
+            # For all other transfers, use the two-transaction approach
+            logger.info(f"Using two-transaction approach via Cash In Transit")
+            
+            # First transaction: from_account to Cash In Transit
+            first_payload = {
                 "date": current_date,
                 "from_account_id": from_account_id,
-                "to_account_id": to_account_id,
+                "to_account_id": cash_in_transit_id,
                 "amount": amount,
                 "reference_number": reference_number,
-                "description": f"Transfer of {amount} between accounts",
-                "transaction_type": "transfer_fund"  # This field was missing in our implementation
+                "description": f"Transfer of {amount} (Part 1: Source to Cash In Transit)",
+                "transaction_type": "transfer_fund"
             }
             
-            logger.info(f"Executing transfer: {from_account_id} to {to_account_id} for amount {amount}")
+            logger.info(f"Executing first transaction: {from_account_id} to {cash_in_transit_id}")
+            first_response = self._execute_transaction(first_payload)
             
-            # Make the API request
-            response = self._execute_transaction(payload)
-            
-            if response.status_code >= 400:
+            if first_response.status_code >= 400:
                 try:
-                    error_data = response.json()
+                    error_data = first_response.json()
                     error_message = error_data.get('message', 'Unknown error')
                 except:
-                    error_message = f"Status code: {response.status_code}, Response: {response.text}"
+                    error_message = f"Status code: {first_response.status_code}, Response: {first_response.text}"
                     
-                raise Exception(f"Zoho Books API Error: {error_message}")
+                raise Exception(f"First transaction failed: {error_message}")
             
-            return response.json()
+            # Second transaction: Cash In Transit to to_account
+            second_payload = {
+                "date": current_date,
+                "from_account_id": cash_in_transit_id,
+                "to_account_id": to_account_id,
+                "amount": amount,
+                "reference_number": f"{reference_number}-2",
+                "description": f"Transfer of {amount} (Part 2: Cash In Transit to Destination)",
+                "transaction_type": "transfer_fund"
+            }
+            
+            logger.info(f"Executing second transaction: {cash_in_transit_id} to {to_account_id}")
+            second_response = self._execute_transaction(second_payload)
+            
+            if second_response.status_code >= 400:
+                try:
+                    error_data = second_response.json()
+                    error_message = error_data.get('message', 'Unknown error')
+                except:
+                    error_message = f"Status code: {second_response.status_code}, Response: {second_response.text}"
+                    
+                raise Exception(f"Second transaction failed: {error_message}")
+            
+            # Both transactions succeeded
+            result = {
+                "first_transaction": first_response.json(),
+                "second_transaction": second_response.json()
+            }
+            
+            return result
             
         except Exception as e:
             logger.error(f"Error executing transfer: {str(e)}")
             raise
+            
+    def _execute_single_transaction(self, amount, from_account_id, to_account_id, current_date, reference_number):
+        """Execute a single direct transaction between accounts"""
+        payload = {
+            "date": current_date,
+            "from_account_id": from_account_id,
+            "to_account_id": to_account_id,
+            "amount": amount,
+            "reference_number": reference_number,
+            "description": f"Direct transfer of {amount} between accounts",
+            "transaction_type": "transfer_fund"
+        }
+        
+        response = self._execute_transaction(payload)
+        
+        if response.status_code >= 400:
+            try:
+                error_data = response.json()
+                error_message = error_data.get('message', 'Unknown error')
+            except:
+                error_message = f"Status code: {response.status_code}, Response: {response.text}"
+                
+            raise Exception(f"Direct transaction failed: {error_message}")
+        
+        return response.json()
     
     def _execute_transaction(self, payload):
         """Execute the API call to Zoho Books"""
