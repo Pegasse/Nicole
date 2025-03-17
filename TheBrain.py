@@ -302,8 +302,8 @@ class Brain:
                     success_message = f"✅ Transfer completed successfully!\nAmount: {result.get('amount')}\nFrom: {result.get('from_account')}\nTo: {result.get('to_account')}"
                     self.message_sender.send_message(channel, success_message)
                 else:
-                    # Send the error message from the result
-                    error_message = f"❌ Transfer failed: {result.get('message', 'Unknown error')}"
+                    # Send the error message from the result - use 'text' instead of 'message' to match old_brain.py
+                    error_message = f"❌ Transfer failed: {result.get('text', 'Unknown error')}"
                     self.message_sender.send_message(channel, error_message)
             else:
                 # Fallback success message if result format is unexpected

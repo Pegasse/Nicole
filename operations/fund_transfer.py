@@ -87,7 +87,7 @@ class FundTransferHandler:
                 response_text = f"@{sender_name}: Please specify both 'from' and 'to' accounts for the transfer."
                 # Send the message but don't fail if message sending fails
                 self.cliq_sender.send_message("Nicole", response_text)
-                return {"status": "error", "message": response_text, "amount": amount, "from_account": from_account, "to_account": to_account}
+                return {"status": "error", "text": response_text, "amount": amount, "from_account": from_account, "to_account": to_account}
             
             # Original account names for display
             original_from = from_account
@@ -120,7 +120,7 @@ class FundTransferHandler:
                 
                 # Send the message but don't fail if message sending fails
                 self.cliq_sender.send_message("Nicole", response_text)
-                return {"status": "error", "message": response_text, "amount": amount, "from_account": original_from, "to_account": original_to}
+                return {"status": "error", "text": response_text, "amount": amount, "from_account": original_from, "to_account": original_to}
             
             # Execute the transfer
             result = self.execute_transfer(amount, from_account_id, to_account_id)
@@ -159,7 +159,7 @@ class FundTransferHandler:
             else:
                 response_text = f"@{sender_name}: Successfully transferred ${amount} from {original_from} to {original_to}. Transaction ID: {transaction_id_text}"
                 
-            # Send the success message to Nicole channel
+            # Send the success message to Nicole channel - using same channel as old_brain.py
             self.cliq_sender.send_message("Nicole", response_text)
             
             # For MCAsie transfers, also send a notification to recipient like in old_brain.py
@@ -167,16 +167,15 @@ class FundTransferHandler:
             is_cash_in_transit = to_account == 'cash_in_transit'
             if to_mcasie or is_cash_in_transit:
                 recipient_msg = f"RAC: {sender_name} sent ${amount} from {original_from} to {original_to}. Please confirm receipt."
-                self.cliq_sender.send_message("Nicole", recipient_msg)
+                self.cliq_sender.send_message("Nicole", recipient_msg)  # old_brain.py also sent to "Nicole" channel
             
-            # Return successful result with transaction info
+            # Return successful result with transaction info - matching old_brain.py format
             return {
                 "status": "success", 
-                "message": response_text, 
+                "text": response_text,  # change from "message" to "text" to match old_brain.py
                 "amount": amount, 
                 "from_account": original_from, 
-                "to_account": original_to,
-                "transactions": result
+                "to_account": original_to
             }
             
         except Exception as e:
@@ -190,10 +189,10 @@ class FundTransferHandler:
             except Exception as msg_error:
                 logger.error(f"Failed to send error message: {str(msg_error)}")
             
-            # Return error result with all the information we have
+            # Return error result matching old_brain.py format
             return {
                 "status": "error", 
-                "message": error_message, 
+                "text": response_text,  # change to "text" to match old_brain.py
                 "amount": parsed_data.get('amount'), 
                 "from_account": parsed_data.get('from_account', ''), 
                 "to_account": parsed_data.get('to_account', '')
