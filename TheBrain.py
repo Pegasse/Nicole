@@ -1,4 +1,9 @@
 from flask import Flask, request, jsonify
+import requests
+import certifi
+import ssl
+import urllib3
+import socket
 from utils.message_sender import CliqMessageSender
 from operations.fund_transfer import FundTransferHandler
 from config import Config, logger
