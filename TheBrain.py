@@ -460,6 +460,84 @@ def move_funds_to_cash_in_transit(parsed_data):
     if not to_account_id:
         return {"code": -1, "message": f"Unknown to account: {to_account}"}
     
+    # Determine if this is an inter-location transfer
+    def get_location_prefix(account):
+        account = str(account).upper()
+        if "MC " in account and "MCASIE" not in account:
+            return "MC"
+        elif "BE " in account:
+            return "BE"
+        elif "MCASIE" in account:
+            return "MCASIE"
+        return None
+    
+    from_location = get_location_prefix(from_account)
+    to_location = get_location_prefix(to_account)
+    
+    # If this is an inter-location transfer, we need to create two transactions
+    if from_location and to_location and from_location != to_location:
+        print(f"Inter-location transfer detected: {from_location} to {to_location}")
+        
+        # First transaction: from_account to Cash In Transit
+        first_transaction = {
+            "date": date.today().isoformat(),
+            "from_account_id": from_account_id,
+            "to_account_id": account_id_map["Cash In Transit"],
+            "amount": amount,
+            "reference_number": f"TRANSFER-{date.today().strftime('%Y%m%d')}-{int(datetime.now().timestamp()) % 10000}",
+            "description": f"{description} (Part 1: {from_account} to Cash In Transit)",
+            "transaction_type": "transfer_fund"
+        }
+        
+        # Second transaction: Cash In Transit to to_account
+        second_transaction = {
+            "date": date.today().isoformat(),
+            "from_account_id": account_id_map["Cash In Transit"],
+            "to_account_id": to_account_id,
+            "amount": amount,
+            "reference_number": f"TRANSFER-{date.today().strftime('%Y%m%d')}-{int(datetime.now().timestamp()) % 10000}",
+            "description": f"{description} (Part 2: Cash In Transit to {to_account})",
+            "transaction_type": "transfer_fund"
+        }
+        
+        try:
+            # Execute first transaction
+            full_url = f"{ZOHO_API_URL}/banktransactions?organization_id={ZOHO_ORG_ID}"
+            headers = {
+                **ZOHO_HEADERS,
+                "Accept": "application/json",
+                "Content-Type": "application/json"
+            }
+            
+            print(f"Executing first transaction: {from_account} to Cash In Transit")
+            response1 = requests.post(full_url, headers=headers, json=first_transaction)
+            print(f"First transaction response: {response1.status_code}")
+            
+            if response1.status_code >= 400:
+                return {"code": response1.status_code, "message": f"First transaction failed: {response1.text}"}
+            
+            # Execute second transaction
+            print(f"Executing second transaction: Cash In Transit to {to_account}")
+            response2 = requests.post(full_url, headers=headers, json=second_transaction)
+            print(f"Second transaction response: {response2.status_code}")
+            
+            if response2.status_code >= 400:
+                return {"code": response2.status_code, "message": f"Second transaction failed: {response2.text}"}
+            
+            # Both transactions succeeded
+            return {
+                "code": 0,
+                "message": "Both transactions completed successfully",
+                "first_transaction": response1.json(),
+                "second_transaction": response2.json()
+            }
+            
+        except requests.exceptions.RequestException as e:
+            error_message = f"Request Error: {str(e)}"
+            print(error_message)
+            return {"code": -1, "message": error_message}
+    
+    # For same-location transfers, proceed with single transaction
     current_date = date.today().isoformat()
     reference_number = f"TRANSFER-{date.today().strftime('%Y%m%d')}-{int(datetime.now().timestamp()) % 10000}"
     
