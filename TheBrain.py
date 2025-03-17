@@ -101,7 +101,7 @@ class GrokAPIClient:
             
             # Create the request payload
             payload = {
-                "model": "grok-1",
+                "model": "grok-2",
                 "messages": [
                     {"role": "system", "content": system_content},
                     {"role": "user", "content": message}
