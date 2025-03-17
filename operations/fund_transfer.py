@@ -122,7 +122,7 @@ class FundTransferHandler:
             
             # Create the API request headers
             headers = {
-                "Authorization": f"Zoho-oauthtoken {self.token_manager.zoho_token}",
+                "Authorization": f"Zoho-oauthtoken {self.token_manager.get_token()}",
                 "Content-Type": "application/json"
             }
             

@@ -17,9 +17,6 @@ from dotenv import load_dotenv
 # Add the current directory to the path to import local modules
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# Import local modules
-from utils.json_parser import JsonParser
-
 # Load environment variables
 load_dotenv()
 
@@ -32,7 +29,7 @@ class GrokAPIClient:
     
     def __init__(self):
         """Initialize the X.ai API client"""
-        self.api_key = Config.GROK_API_KEY
+        self.api_key = Config.X_AI_API_KEY
         
         # Use the official API endpoint
         self.api_url = "https://api.x.ai/v1/chat/completions"
@@ -396,7 +393,7 @@ def webhook():
 def start_server():
     """Start the Flask server"""
     app.run(
-        host=Config.HOST,
+        host="0.0.0.0",
         port=Config.PORT,
         debug=False
     )
