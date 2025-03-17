@@ -2,6 +2,7 @@ import requests
 import certifi
 import ssl
 import urllib3
+import socket
 from config import Config, logger
 
 class GrokAPIClient:
@@ -10,8 +11,14 @@ class GrokAPIClient:
     def __init__(self):
         """Initialize the Grok API client"""
         self.api_key = Config.GROK_API_KEY
-        # Using the official Grok API endpoint
-        self.api_url = "https://api.grok.ai/v1/chat/completions"
+        # Resolve the IP address for api.grok.ai
+        try:
+            ip_address = socket.gethostbyname('api.grok.ai')
+            self.api_url = f"https://{ip_address}/v1/chat/completions"
+            logger.info(f"Using Grok API IP: {ip_address}")
+        except socket.gaierror as e:
+            logger.error(f"Failed to resolve api.grok.ai: {e}")
+            self.api_url = "https://api.grok.ai/v1/chat/completions"
         
         if not self.api_key:
             logger.warning("Grok API key not found in environment variables")
@@ -32,6 +39,7 @@ class GrokAPIClient:
             total=5,  # Increase total retries
             backoff_factor=2,  # Increase backoff factor
             status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["POST"]  # Only retry on POST requests
         )
         
         # Create custom adapter with SSL context
@@ -59,7 +67,8 @@ class GrokAPIClient:
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
                 "User-Agent": "NicoleBot/1.0",
-                "Accept": "application/json"
+                "Accept": "application/json",
+                "Host": "api.grok.ai"  # Add Host header
             }
             
             # Create the system prompt
