@@ -30,6 +30,7 @@ class Config:
     
     # Zoho Cliq
     CLIQ_WEBHOOK_URL = os.getenv('CLIQ_WEBHOOK_URL')
+    ZOHO_BOT_TOKEN = os.getenv('ZOHO_BOT_TOKEN')  # Added for direct bot API access
 
 # Logging configuration
 def setup_logging():
