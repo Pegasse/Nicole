@@ -1,5 +1,4 @@
 from flask import Flask, request, jsonify
-from utils.api_client import GrokAPIClient
 from utils.message_sender import CliqMessageSender
 from operations.fund_transfer import FundTransferHandler
 from config import Config, logger
