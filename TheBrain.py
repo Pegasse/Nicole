@@ -71,7 +71,28 @@ class GrokAPIClient:
             
             Special rules:
             - Account names should be lowercase and use underscores for spaces
-            - Valid account names are: cash_in_transit, be_bank, bellissima, mcasie, bdms
+            - Valid account names and their variations:
+              * MC Cash (variations: mc_cash, microconcept cash, mc cash account)
+              * MC Bank (variations: mc_bank, microconcept bank, mc bank account)
+              * MC Mpesa (variations: mc_mpesa, microconcept mpesa, mc mpesa account)
+              * BE Cash (variations: be_cash, bellissima cash, bellissima cash account, belli cash)
+              * BE Bank (variations: be_bank, bellissima bank, bellissima bank account, belli bank)
+              * BE Mpesa (variations: be_mpesa, bellissima mpesa, bellissima mpesa account, belli mpesa)
+              * MCAsie Cash (variations: mcasie_cash, mcasie, rac, asie, mcasie cash account)
+              * Cash In Transit (variations: cash_in_transit, transit, cash transit)
+              * Royalties Available (variations: royalties_available, royalties, available royalties)
+              * Expense Provisions (variations: expense_provisions, provisions, expense provision)
+              * Fond de Caisse (variations: fond_de_caisse, fond, caisse)
+              * Buying Petty Cash (variations: buying_petty_cash, petty cash, buying petty)
+            
+            Account name matching rules:
+            - For MCAsie/RAC transfers:
+              * If destination is MCAsie/RAC and source is MC or BE account, set to_account to 'cash_in_transit'
+              * If destination is MCAsie/RAC but source isn't specified, set from_account to 'cash_in_transit'
+            - For withdrawals:
+              * If no to_account is specified, set it to a Cash account with similar prefix to from_account
+              * Example: BE Bank to BE Cash
+            
             - If an account name is not specified, use a reasonable default
             - Amount should be a number, remove any currency symbols or commas
             """
