@@ -1,6 +1,7 @@
 import requests
 import certifi
 import ssl
+import urllib3
 from config import Config, logger
 
 class GrokAPIClient:
@@ -15,14 +16,24 @@ class GrokAPIClient:
         if not self.api_key:
             logger.warning("Grok API key not found in environment variables")
         
-        # Create a session with proper SSL configuration
+        # Configure SSL settings for server environment
+        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        
+        # Create a session with server-specific SSL configuration
         self.session = requests.Session()
         self.session.verify = certifi.where()  # Use certifi's certificate bundle
         
-        # Configure SSL context
-        self.ssl_context = ssl.create_default_context(cafile=certifi.where())
-        self.ssl_context.check_hostname = True
-        self.ssl_context.verify_mode = ssl.CERT_REQUIRED
+        # Configure retry strategy
+        retry_strategy = urllib3.Retry(
+            total=3,
+            backoff_factor=1,
+            status_forcelist=[429, 500, 502, 503, 504],
+        )
+        
+        # Mount the retry strategy to the session
+        adapter = requests.adapters.HTTPAdapter(max_retries=retry_strategy)
+        self.session.mount("https://", adapter)
+        self.session.mount("http://", adapter)
     
     def parse_message(self, message):
         """Parse a message using the Grok API"""
@@ -34,7 +45,8 @@ class GrokAPIClient:
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
-                "User-Agent": "NicoleBot/1.0"  # Add user agent for better tracking
+                "User-Agent": "NicoleBot/1.0",
+                "Accept": "application/json"
             }
             
             # Create the system prompt
@@ -69,12 +81,12 @@ class GrokAPIClient:
                 "max_tokens": 150
             }
             
-            # Make the API request with proper SSL handling
+            # Make the API request
             response = self.session.post(
                 self.api_url, 
                 headers=headers, 
                 json=payload,
-                timeout=30  # Add timeout to prevent hanging
+                timeout=30
             )
             
             # Log response status and headers for debugging
@@ -99,11 +111,11 @@ class GrokAPIClient:
             
         except requests.exceptions.SSLError as e:
             logger.error(f"SSL Error: {str(e)}")
-            logger.error("Please ensure your system's SSL certificates are up to date")
+            logger.error("SSL Certificate verification failed. Please check the API endpoint and SSL configuration.")
             raise
         except requests.exceptions.ConnectionError as e:
             logger.error(f"Connection Error: {str(e)}")
-            logger.error("Please check your internet connection and the API endpoint")
+            logger.error("Failed to connect to the API. Please check your internet connection and the API endpoint.")
             raise
         except requests.exceptions.Timeout as e:
             logger.error(f"Request Timeout: {str(e)}")
