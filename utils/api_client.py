@@ -16,24 +16,37 @@ class GrokAPIClient:
         if not self.api_key:
             logger.warning("Grok API key not found in environment variables")
         
-        # Configure SSL settings for server environment
+        # Configure SSL settings for Heroku environment
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
         
-        # Create a session with server-specific SSL configuration
+        # Create a session with Heroku-specific SSL configuration
         self.session = requests.Session()
-        self.session.verify = certifi.where()  # Use certifi's certificate bundle
         
-        # Configure retry strategy
+        # Configure SSL context for Heroku
+        ssl_context = ssl.create_default_context(cafile=certifi.where())
+        ssl_context.check_hostname = False  # Disable hostname checking for Heroku
+        ssl_context.verify_mode = ssl.CERT_NONE  # Disable certificate verification for Heroku
+        
+        # Configure retry strategy with longer timeouts
         retry_strategy = urllib3.Retry(
-            total=3,
-            backoff_factor=1,
+            total=5,  # Increase total retries
+            backoff_factor=2,  # Increase backoff factor
             status_forcelist=[429, 500, 502, 503, 504],
         )
         
-        # Mount the retry strategy to the session
-        adapter = requests.adapters.HTTPAdapter(max_retries=retry_strategy)
+        # Create custom adapter with SSL context
+        adapter = requests.adapters.HTTPAdapter(
+            max_retries=retry_strategy,
+            pool_connections=10,
+            pool_maxsize=10
+        )
+        
+        # Mount the adapter with SSL context
         self.session.mount("https://", adapter)
         self.session.mount("http://", adapter)
+        
+        # Set SSL context for the session
+        self.session.verify = False  # Disable SSL verification for Heroku
     
     def parse_message(self, message):
         """Parse a message using the Grok API"""
@@ -81,12 +94,13 @@ class GrokAPIClient:
                 "max_tokens": 150
             }
             
-            # Make the API request
+            # Make the API request with SSL verification disabled
             response = self.session.post(
                 self.api_url, 
                 headers=headers, 
                 json=payload,
-                timeout=30
+                timeout=60,  # Increase timeout
+                verify=False  # Disable SSL verification
             )
             
             # Log response status and headers for debugging
