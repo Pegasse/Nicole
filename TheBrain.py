@@ -347,18 +347,14 @@ def parse_with_grok(message):
         "2. from_account: The source account (options: MC Cash, MC Bank, MC Mpesa, BE Cash, BE Bank, BE Mpesa, MCAsie Cash, Cash In Transit, Royalties Available, Expense Provisions, Fond de Caisse, Buying Petty Cash)\n"
         "3. to_account: The destination account (same options as from_account)\n"
         "4. purpose: The reason for the transfer\n"
-        "5. description: A brief summary of the transaction\n"
-        "6. location: The branch for this transaction, determined by the from_account (MC accounts → MicroConcept, BE accounts → Bellissima, MCAsie accounts → MCAsie)\n\n"
+        "5. description: A brief summary of the transaction\n\n"
         "Special Rules:\n"
-        "- If the from_account contains 'MC', the location is MicroConcept\n"
-        "- If the from_account contains 'BE', the location is Bellissima\n"
-        "- If the from_account contains 'MCAsie', the location is MCAsie\n"
         "- For transfers to MCAsie/RAC from any MC or BE account, automatically set to_account to 'Cash In Transit'\n"
         "- If destination is MCAsie/RAC but from_account isn't specified, assume 'Cash In Transit'\n"
         "- If from_account or to_account aren't clearly specified, set them to null\n"
         "- Normalize references to 'MCAsie', 'Asie', or 'RAC' as 'MCAsie Cash' for to_account\n"
         "- For withdrawals, if no to_account is specified, set it to a Cash account with a similar prefix to the from_account. For example, BE Bank to BE Cash\n\n"
-        "Return ONLY valid JSON with no other text: {\"amount\":X,\"from_account\":Y,\"to_account\":Z,\"purpose\":P,\"description\":D,\"location\":L}"
+        "Return ONLY valid JSON with no other text: {\"amount\":X,\"from_account\":Y,\"to_account\":Z,\"purpose\":P,\"description\":D}"
     )
     
     user_content = f"Parse this transfer request: {message}"
@@ -409,18 +405,6 @@ def parse_with_grok(message):
                                 # If to_account is MCAsie but from_account isn't specified
                                 parsed_data["from_account"] = "Cash In Transit"
                         
-                        # Determine location based on from_account if not already set
-                        if not parsed_data.get("location") and parsed_data.get("from_account"):
-                            from_account = str(parsed_data["from_account"]).upper()
-                            if "MC " in from_account and "MCAsie" not in from_account:
-                                parsed_data["location"] = "MicroConcept"
-                            elif "BE " in from_account:
-                                parsed_data["location"] = "Bellissima"
-                            elif "MCAsie" in from_account:
-                                parsed_data["location"] = "MCAsie"
-                            elif "CASH IN TRANSIT" in from_account:
-                                parsed_data["location"] = "MCAsie"
-                        
                         return parsed_data
                     except json.JSONDecodeError:
                         print(f"Error: Could not parse JSON from response: {content}")
@@ -449,42 +433,6 @@ def move_funds_to_cash_in_transit(parsed_data):
     to_account = parsed_data.get("to_account", "Cash In Transit")  # Default to Cash In Transit if not specified
     purpose = parsed_data.get("purpose", "Funds Transfer")
     description = parsed_data.get("description", f"Transfer for {purpose}")
-    
-    # Determine location based on from_account if not already provided
-    location_name = parsed_data.get("location")
-    if not location_name:
-        if "MC " in from_account and "MCAsie" not in from_account:
-            location_name = "MicroConcept"
-        elif "BE " in from_account:
-            location_name = "Bellissima"
-        elif "MCAsie" in from_account or from_account == "Cash In Transit":
-            location_name = "MCAsie"
-        else:
-            # Default to MicroConcept if we can't determine
-            location_name = "MicroConcept"
-    
-    # Check if environment variables for location IDs are set
-    print(f"Checking location ID environment variables:")
-    print(f"- MICROCONCEPT_ID: {'✓ Present' if MICROCONCEPT_ID else '✗ Missing'}")
-    print(f"- BELLISSIMA_ID: {'✓ Present' if BELLISSIMA_ID else '✗ Missing'}")
-    print(f"- MCASIE_ID: {'✓ Present' if MCASIE_ID else '✗ Missing'}")
-    print(f"- BDMS_ID: {'✓ Present' if BDMS_ID else '✗ Missing'}")
-    
-    # Map location name to location ID
-    location_id_map = {
-        "MicroConcept": MICROCONCEPT_ID,
-        "Bellissima": BELLISSIMA_ID,
-        "MCAsie": MCASIE_ID,
-        "BDMS": BDMS_ID
-    }
-    
-    location_id = location_id_map.get(location_name)
-    
-    # We don't fail if location ID is missing, just log a warning
-    if not location_id:
-        print(f"WARNING: Missing location ID for '{location_name}'. Proceeding without branch_id.")
-    else:
-        print(f"Using location: {location_name} (ID: {location_id}) for transfer from {from_account} to {to_account}")
     
     # Map account names to Zoho Books account IDs
     account_id_map = {
@@ -526,10 +474,6 @@ def move_funds_to_cash_in_transit(parsed_data):
         "transaction_type": "transfer_fund"  # Specify that this is a transfer transaction
     }
     
-    # For the first attempt, don't include branch_id at all
-    # This gives the best chance of success for transfers between accounts
-    print(f"Initial sending transfer request (without branch_id): {payload}")
-    
     try:
         # Use the correct endpoint for bank transactions
         full_url = f"{ZOHO_API_URL}/banktransactions?organization_id={ZOHO_ORG_ID}"
@@ -545,33 +489,6 @@ def move_funds_to_cash_in_transit(parsed_data):
         
         response = requests.post(full_url, headers=headers, json=payload)
         print(f"Response status code: {response.status_code}")
-        
-        # Check if we got a branch association error and have a valid location_id
-        if response.status_code == 400 and location_id:
-            try:
-                result = response.json()
-                error_message = result.get("message", "")
-                if "branch is not associated" in error_message.lower():
-                    print("Got branch association error, trying alternative approach...")
-                    
-                    # Try again with a different strategy based on the error
-                    if "bank" in error_message.lower():
-                        # For bank accounts, we may need a different approach
-                        print("This appears to be a bank account branch association error.")
-                        
-                        # Try without branch_id - this is our fallback
-                        # We already tried without branch_id initially
-                        return {"code": -1, "message": f"Bank account branch association error: {error_message}. Please use accounts associated with the correct branch."}
-                    else:
-                        # For other accounts, we might try with the branch_id
-                        print("Adding branch_id and retrying...")
-                        payload["branch_id"] = location_id
-                        
-                        # Try again with the branch_id added
-                        response = requests.post(full_url, headers=headers, json=payload)
-                        print(f"Retry response status code: {response.status_code}")
-            except Exception as e:
-                print(f"Error processing response: {e}")
         
         # Check if response is HTML (indicating a redirect)
         if response.headers.get('content-type', '').startswith('text/html'):
