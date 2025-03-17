@@ -18,12 +18,58 @@ class FundTransferHandler:
         
         # Load account IDs from config
         self.account_ids = {
-            'cash_in_transit': Config.CASH_IN_TRANSIT_ACCOUNT,
-            'be_bank': Config.BE_BANK_ACCOUNT,
-            'bellissima': Config.BELLISSIMA_BANK_ACCOUNT,
-            'mcasie': Config.MCASIE_BANK_ACCOUNT,
-            'bdms': Config.BDMS_BANK_ACCOUNT
+            # Primary account IDs
+            'mc_cash': Config.MC_CASH_ID,
+            'mc_bank': Config.MC_BANK_ID,
+            'mc_mpesa': Config.MC_MPESA_ID,
+            'be_cash': Config.BE_CASH_ID,
+            'be_bank': Config.BE_BANK_ID,
+            'be_mpesa': Config.BE_MPESA_ID,
+            'mcasie_cash': Config.MCASIE_CASH_ID,
+            'cash_in_transit': Config.CASH_IN_TRANSIT_ID,
+            'royalties_available': Config.ROYALTIES_AVAILABLE_ID,
+            'expense_provisions': Config.EXPENSE_PROVISIONS_ID,
+            'fond_de_caisse': Config.FOND_DE_CAISSE_ID,
+            'buying_petty_cash': Config.BUYING_PETTY_CASH_ID
         }
+        
+        # Account name variations mapping to standard names
+        self.account_name_map = {
+            # MC variations
+            'microconcept': 'mc_cash',
+            'microconcept_cash': 'mc_cash',
+            'microconcept_bank': 'mc_bank',
+            'microconcept_mpesa': 'mc_mpesa',
+            
+            # BE variations
+            'bellissima': 'be_cash',
+            'bellissima_cash': 'be_cash',
+            'bellissima_bank': 'be_bank',
+            'bellissima_mpesa': 'be_mpesa',
+            'belli': 'be_cash',
+            'belli_cash': 'be_cash',
+            'belli_bank': 'be_bank',
+            'belli_mpesa': 'be_mpesa',
+            
+            # MCAsie variations
+            'mcasie': 'mcasie_cash',
+            'asie': 'mcasie_cash',
+            'rac': 'mcasie_cash',
+            
+            # Other variations
+            'transit': 'cash_in_transit',
+            'royalties': 'royalties_available',
+            'provisions': 'expense_provisions',
+            'fond': 'fond_de_caisse',
+            'caisse': 'fond_de_caisse',
+            'petty_cash': 'buying_petty_cash',
+            'buying_petty': 'buying_petty_cash'
+        }
+        
+        # If any account IDs are missing, log a warning
+        missing_accounts = [k for k, v in self.account_ids.items() if not v]
+        if missing_accounts:
+            logger.warning(f"Missing account IDs for: {', '.join(missing_accounts)}")
     
     def process(self, parsed_data, sender_name):
         """Process a fund transfer request"""
@@ -43,12 +89,17 @@ class FundTransferHandler:
                 self.cliq_sender.send_message("Nicole", response_text)
                 return {"status": "error", "message": response_text, "amount": amount, "from_account": from_account, "to_account": to_account}
             
+            # Normalize account names using the mapping
+            from_account = self.normalize_account_name(from_account)
+            to_account = self.normalize_account_name(to_account)
+            
             # Get account IDs
             from_account_id = self.account_ids.get(from_account)
             to_account_id = self.account_ids.get(to_account)
             
             if not from_account_id or not to_account_id:
-                response_text = f"@{sender_name}: Invalid account name(s). Valid accounts are: {', '.join(self.account_ids.keys())}"
+                valid_accounts = list(self.account_ids.keys()) + list(self.account_name_map.keys())
+                response_text = f"@{sender_name}: Invalid account name(s). Valid accounts are: {', '.join(sorted(set(valid_accounts)))}"
                 # Send the message but don't fail if message sending fails
                 self.cliq_sender.send_message("Nicole", response_text)
                 return {"status": "error", "message": response_text, "amount": amount, "from_account": from_account, "to_account": to_account}
@@ -122,4 +173,19 @@ class FundTransferHandler:
             "Content-Type": "application/json"
         }
         
-        return requests.post(url, json=payload, headers=headers) 
+        return requests.post(url, json=payload, headers=headers)
+    
+    def normalize_account_name(self, account_name):
+        """Normalize account names to standard format"""
+        account_name = account_name.lower().strip()
+        
+        # Check if the account name is already a standard name
+        if account_name in self.account_ids:
+            return account_name
+            
+        # Check if it's a known variation
+        if account_name in self.account_name_map:
+            return self.account_name_map[account_name]
+            
+        # If not found, return the original name
+        return account_name 

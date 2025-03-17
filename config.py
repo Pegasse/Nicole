@@ -18,12 +18,39 @@ class Config:
     ZOHO_REFRESH_TOKEN = os.getenv('ZOHO_REFRESH_TOKEN')
     ZOHO_REDIRECT_URI = os.getenv('ZOHO_REDIRECT_URI')
     
-    # Account IDs
-    CASH_IN_TRANSIT_ACCOUNT = os.getenv('CASH_IN_TRANSIT_ACCOUNT')
-    BE_BANK_ACCOUNT = os.getenv('BE_BANK_ACCOUNT')
-    BELLISSIMA_BANK_ACCOUNT = os.getenv('BELLISSIMA_BANK_ACCOUNT')
-    MCASIE_BANK_ACCOUNT = os.getenv('MCASIE_BANK_ACCOUNT')
-    BDMS_BANK_ACCOUNT = os.getenv('BDMS_BANK_ACCOUNT')
+    # Account IDs from old_brain.py
+    # MicroConcept accounts
+    MC_CASH_ID = os.getenv('MC_CASH_ID')
+    MC_BANK_ID = os.getenv('MC_BANK_ID')
+    MC_MPESA_ID = os.getenv('MC_MPESA_ID')
+    
+    # Bellissima accounts
+    BE_CASH_ID = os.getenv('BE_CASH_ID')
+    BE_BANK_ID = os.getenv('BE_BANK_ID')
+    BE_MPESA_ID = os.getenv('BE_MPESA_ID')
+    
+    # MCAsie accounts
+    MCASIE_CASH_ID = os.getenv('MCASIE_CASH_ID')
+    
+    # Special accounts
+    CASH_IN_TRANSIT_ID = os.getenv('CASH_IN_TRANSIT_ID')
+    ROYALTIES_AVAILABLE_ID = os.getenv('ROYALTIES_AVAILABLE_ID')
+    EXPENSE_PROVISIONS_ID = os.getenv('EXPENSE_PROVISIONS_ID')
+    FOND_DE_CAISSE_ID = os.getenv('FOND_DE_CAISSE_ID')
+    BUYING_PETTY_CASH_ID = os.getenv('BUYING_PETTY_CASH_ID')
+    
+    # Location IDs (for branch_id parameter)
+    MICROCONCEPT_ID = os.getenv('MICROCONCEPT_ID')
+    BELLISSIMA_ID = os.getenv('BELLISSIMA_ID')
+    MCASIE_ID = os.getenv('MCASIE_ID')
+    BDMS_ID = os.getenv('BDMS_ID')
+    
+    # Legacy account IDs (keeping for compatibility)
+    CASH_IN_TRANSIT_ACCOUNT = os.getenv('CASH_IN_TRANSIT_ACCOUNT', os.getenv('CASH_IN_TRANSIT_ID'))
+    BE_BANK_ACCOUNT = os.getenv('BE_BANK_ACCOUNT', os.getenv('BE_BANK_ID'))
+    BELLISSIMA_BANK_ACCOUNT = os.getenv('BELLISSIMA_BANK_ACCOUNT', os.getenv('BE_BANK_ID'))
+    MCASIE_BANK_ACCOUNT = os.getenv('MCASIE_BANK_ACCOUNT', os.getenv('MCASIE_CASH_ID'))
+    BDMS_BANK_ACCOUNT = os.getenv('BDMS_BANK_ACCOUNT', os.getenv('BDMS_ID'))
     
     # X.ai API
     GROK_API_KEY = os.getenv('X_AI_API_KEY', os.getenv('GROK_API_KEY'))  # Support both names
