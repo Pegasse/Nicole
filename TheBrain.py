@@ -8,27 +8,22 @@ from utils.message_sender import CliqMessageSender
 from operations.fund_transfer import FundTransferHandler
 from config import Config, logger
 from utils.token_manager import ZohoTokenManager
+import json
 
 # Create Flask application
 app = Flask(__name__)
 
 class GrokAPIClient:
-    """Client for interacting with the Grok API"""
+    """Client for interacting with the X.ai API"""
     
     def __init__(self):
-        """Initialize the Grok API client"""
+        """Initialize the X.ai API client"""
         self.api_key = Config.GROK_API_KEY
-        # Resolve the IP address for api.x.ai
-        try:
-            ip_address = socket.gethostbyname('api.x.ai')
-            self.api_url = f"https://{ip_address}/v1/chat/completions"
-            logger.info(f"Using Grok API IP: {ip_address}")
-        except socket.gaierror as e:
-            logger.error(f"Failed to resolve api.x.ai: {e}")
-            self.api_url = "https://api.x.ai/v1/chat/completions"
+        # Use the official X.ai API endpoint from docs
+        self.api_url = "https://api.x.ai/v1/chat/completions"
         
         if not self.api_key:
-            logger.warning("Grok API key not found in environment variables")
+            logger.warning("X.ai API key not found in environment variables")
         
         # Configure SSL settings for Heroku environment
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -64,18 +59,18 @@ class GrokAPIClient:
         self.session.verify = False  # Disable SSL verification for Heroku
     
     def parse_message(self, message):
-        """Parse a message using the Grok API"""
+        """Parse a message using the X.ai API"""
         if not self.api_key:
-            raise Exception("Grok API key not configured")
+            raise Exception("X.ai API key not configured")
         
         try:
-            # Prepare the API request
+            # Prepare the API request according to X.ai documentation
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
                 "Content-Type": "application/json",
                 "User-Agent": "NicoleBot/1.0",
                 "Accept": "application/json",
-                "Host": "api.x.ai"  # Add Host header
+                "x-api-key": self.api_key  # X.ai requires x-api-key header
             }
             
             # Create the system prompt
@@ -99,9 +94,9 @@ class GrokAPIClient:
             - Amount should be a number, remove any currency symbols or commas
             """
             
-            # Create the request payload
+            # Create the request payload according to X.ai documentation
             payload = {
-                "model": "grok-2",
+                "model": "grok-2",  # Updated to use grok-2 as per X.ai docs
                 "messages": [
                     {"role": "system", "content": system_content},
                     {"role": "user", "content": message}
@@ -128,10 +123,17 @@ class GrokAPIClient:
             # Parse the response
             result = response.json()
             if "choices" not in result or not result["choices"]:
-                raise Exception("No response from Grok API")
+                raise Exception("No response from X.ai API")
             
             # Extract the parsed data
             parsed_data = result["choices"][0]["message"]["content"]
+            
+            # Parse the JSON string into a dictionary
+            try:
+                parsed_data = json.loads(parsed_data)
+            except json.JSONDecodeError as e:
+                logger.error(f"Failed to parse JSON response: {e}")
+                raise Exception("Invalid response format from X.ai API")
             
             # Log the parsed data
             logger.info(f"Parsed message: {message}")
@@ -151,7 +153,7 @@ class GrokAPIClient:
             logger.error(f"Request Timeout: {str(e)}")
             raise
         except requests.exceptions.RequestException as e:
-            logger.error(f"Error making request to Grok API: {str(e)}")
+            logger.error(f"Error making request to X.ai API: {str(e)}")
             if hasattr(e, 'response'):
                 logger.error(f"Response status: {e.response.status_code}")
                 logger.error(f"Response headers: {e.response.headers}")
@@ -180,6 +182,15 @@ class Brain:
             # Parse the message using Grok API
             parsed_data = self.grok_client.parse_message(message)
             
+            # Validate parsed data
+            if not isinstance(parsed_data, dict):
+                raise ValueError("Invalid response format from Grok API")
+                
+            required_fields = ["amount", "from_account", "to_account"]
+            missing_fields = [field for field in required_fields if field not in parsed_data]
+            if missing_fields:
+                raise ValueError(f"Missing required fields: {', '.join(missing_fields)}")
+            
             # Process the parsed data
             if parsed_data:
                 # Execute the fund transfer
@@ -193,6 +204,10 @@ class Brain:
                 error_message = "❌ Sorry, I couldn't understand the transfer details. Please try again with a clearer message."
                 self.message_sender.send_message(channel, error_message)
                 
+        except ValueError as e:
+            logger.error(f"Validation error: {str(e)}")
+            error_message = f"❌ Invalid request format: {str(e)}"
+            self.message_sender.send_message(channel, error_message)
         except Exception as e:
             logger.error(f"Error processing message: {str(e)}")
             error_message = f"❌ An error occurred: {str(e)}"

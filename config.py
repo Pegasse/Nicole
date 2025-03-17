@@ -25,8 +25,8 @@ class Config:
     MCASIE_BANK_ACCOUNT = os.getenv('MCASIE_BANK_ACCOUNT')
     BDMS_BANK_ACCOUNT = os.getenv('BDMS_BANK_ACCOUNT')
     
-    # Grok API
-    GROK_API_KEY = os.getenv('GROK_API_KEY')
+    # X.ai API
+    GROK_API_KEY = os.getenv('X_AI_API_KEY', os.getenv('GROK_API_KEY'))  # Support both names
     
     # Zoho Cliq
     CLIQ_WEBHOOK_URL = os.getenv('CLIQ_WEBHOOK_URL')
