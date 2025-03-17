@@ -99,22 +99,90 @@ class GrokAPIClient:
             logger.debug(f"Response status: {response.status_code}")
             logger.debug(f"Response headers: {response.headers}")
             
+            # Log raw response body for debugging
+            try:
+                logger.debug(f"Raw response: {response.text}")
+            except:
+                logger.debug("Could not log raw response text")
+            
             response.raise_for_status()
             
             # Parse the response
-            result = response.json()
-            if "choices" not in result or not result["choices"]:
-                raise Exception("No response from X.ai API")
-            
-            # Extract the parsed data
-            parsed_data = result["choices"][0]["message"]["content"]
-            
-            # Parse the JSON string into a dictionary
             try:
-                parsed_data = json.loads(parsed_data)
+                result = response.json()
             except json.JSONDecodeError as e:
-                logger.error(f"Failed to parse JSON response: {e}")
-                raise Exception("Invalid response format from X.ai API")
+                logger.error(f"Failed to parse API response as JSON: {e}")
+                logger.error(f"Raw response: {response.text}")
+                raise Exception(f"Invalid JSON response from X.ai API: {response.text[:100]}")
+            
+            # Check if response has expected structure
+            if "choices" not in result:
+                logger.error(f"Unexpected API response format - missing 'choices': {result}")
+                raise Exception("Unexpected response format from X.ai API - missing 'choices'")
+                
+            if not result["choices"]:
+                logger.error(f"API returned empty choices array: {result}")
+                raise Exception("No response choices from X.ai API")
+            
+            # Get the first choice
+            first_choice = result["choices"][0]
+            if "message" not in first_choice:
+                logger.error(f"Missing 'message' in response choice: {first_choice}")
+                raise Exception("Unexpected response format from X.ai API - missing 'message'")
+                
+            if "content" not in first_choice["message"]:
+                logger.error(f"Missing 'content' in response message: {first_choice['message']}")
+                raise Exception("Unexpected response format from X.ai API - missing 'content'")
+            
+            # Extract the parsed data text
+            parsed_data_text = first_choice["message"]["content"]
+            if not parsed_data_text or not parsed_data_text.strip():
+                logger.error("Empty content received from X.ai API")
+                raise Exception("Empty response content from X.ai API")
+            
+            # Try to extract JSON from the response content
+            # First look for JSON within the content (in case there's additional text)
+            json_start = parsed_data_text.find("{")
+            json_end = parsed_data_text.rfind("}")
+            
+            if json_start != -1 and json_end != -1 and json_end > json_start:
+                # Extract just the JSON part
+                json_str = parsed_data_text[json_start:json_end+1]
+                try:
+                    parsed_data = json.loads(json_str)
+                    logger.info(f"Successfully extracted JSON from response content")
+                except json.JSONDecodeError as e:
+                    logger.error(f"Found JSON-like content but failed to parse: {e}")
+                    logger.error(f"JSON string: {json_str}")
+                    # Fall back to trying the entire content
+                    try:
+                        parsed_data = json.loads(parsed_data_text)
+                    except json.JSONDecodeError as e2:
+                        logger.error(f"Failed to parse entire content as JSON: {e2}")
+                        # Use a default response with placeholder values
+                        logger.info("Using default response structure")
+                        parsed_data = {
+                            "amount": 0,
+                            "from_account": "unknown",
+                            "to_account": "unknown",
+                            "error": "Failed to parse response",
+                            "original_response": parsed_data_text
+                        }
+            else:
+                # If no JSON brackets found, try the whole string
+                try:
+                    parsed_data = json.loads(parsed_data_text)
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse response as JSON: {e}")
+                    logger.error(f"Response content: {parsed_data_text}")
+                    # Use a default response with placeholder values
+                    parsed_data = {
+                        "amount": 0,
+                        "from_account": "unknown",
+                        "to_account": "unknown",
+                        "error": "Failed to parse response",
+                        "original_response": parsed_data_text
+                    }
             
             # Log the parsed data
             logger.info(f"Parsed message: {message}")
@@ -169,6 +237,17 @@ class Brain:
             # Parse the message using X.ai API
             parsed_data = self.grok_client.parse_message(message)
             
+            # Check if we have an error in parsed data
+            if "error" in parsed_data:
+                # If this is a parse error, extract the original response to provide feedback
+                original_response = parsed_data.get("original_response", "")
+                if original_response and len(original_response) > 50:
+                    original_response = original_response[:50] + "..."
+                    
+                error_message = f"❌ I had trouble understanding your request. The AI responded with: {original_response}\n\nPlease try again with a clearer message, for example: 'Transfer $500 from BE bank to cash in transit'"
+                self.message_sender.send_message(channel, error_message)
+                return
+                
             # Validate parsed data
             if not isinstance(parsed_data, dict):
                 raise ValueError("Invalid response format from X.ai API")
@@ -176,32 +255,40 @@ class Brain:
             required_fields = ["amount", "from_account", "to_account"]
             missing_fields = [field for field in required_fields if field not in parsed_data]
             if missing_fields:
-                raise ValueError(f"Missing required fields: {', '.join(missing_fields)}")
+                error_message = f"❌ I couldn't extract all the required information from your message. Missing: {', '.join(missing_fields)}.\n\nPlease try again with a clearer message including amount, source account, and destination account."
+                self.message_sender.send_message(channel, error_message)
+                return
+            
+            # Additional validation - amount should be a number
+            try:
+                amount = float(parsed_data["amount"])
+                if amount <= 0:
+                    raise ValueError("Amount must be positive")
+                # Update the parsed data with the converted amount
+                parsed_data["amount"] = amount
+            except (ValueError, TypeError):
+                error_message = f"❌ The amount '{parsed_data['amount']}' doesn't seem to be a valid number. Please specify a positive number."
+                self.message_sender.send_message(channel, error_message)
+                return
             
             # Process the parsed data
-            if parsed_data:
-                # Execute the fund transfer with the specified sender name
-                result = self.fund_transfer_handler.process(parsed_data, sender_name)
-                
-                # If result contains a status and message, we can use those
-                if result and isinstance(result, dict) and "status" in result:
-                    if result["status"] == "success":
-                        # Send success message
-                        success_message = f"✅ Transfer completed successfully!\nAmount: {result.get('amount')}\nFrom: {result.get('from_account')}\nTo: {result.get('to_account')}"
-                        self.message_sender.send_message(channel, success_message)
-                    else:
-                        # Send the error message from the result
-                        error_message = f"❌ Transfer failed: {result.get('message', 'Unknown error')}"
-                        self.message_sender.send_message(channel, error_message)
+            result = self.fund_transfer_handler.process(parsed_data, sender_name)
+            
+            # If result contains a status and message, we can use those
+            if result and isinstance(result, dict) and "status" in result:
+                if result["status"] == "success":
+                    # Send success message
+                    success_message = f"✅ Transfer completed successfully!\nAmount: {result.get('amount')}\nFrom: {result.get('from_account')}\nTo: {result.get('to_account')}"
+                    self.message_sender.send_message(channel, success_message)
                 else:
-                    # Fallback success message if result format is unexpected
-                    logger.warning(f"Unexpected result format from fund_transfer_handler: {result}")
-                    self.message_sender.send_message(channel, "✅ Transfer request processed.")
+                    # Send the error message from the result
+                    error_message = f"❌ Transfer failed: {result.get('message', 'Unknown error')}"
+                    self.message_sender.send_message(channel, error_message)
             else:
-                # Send error message if parsing failed
-                error_message = "❌ Sorry, I couldn't understand the transfer details. Please try again with a clearer message."
-                self.message_sender.send_message(channel, error_message)
-                
+                # Fallback success message if result format is unexpected
+                logger.warning(f"Unexpected result format from fund_transfer_handler: {result}")
+                self.message_sender.send_message(channel, "✅ Transfer request processed.")
+            
         except ValueError as e:
             logger.error(f"Validation error: {str(e)}")
             error_message = f"❌ Invalid request format: {str(e)}"
