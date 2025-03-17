@@ -247,6 +247,14 @@ class GrokAPIClient:
             raise
 
 class Brain:
+    """Main brain class that coordinates message processing and business logic"""
+    
+    def __init__(self):
+        """Initialize the brain with necessary components"""
+        self.token_manager = token_manager  # Use the already initialized token_manager
+        self.grok_client = GrokAPIClient()
+        self.fund_transfer_handler = FundTransferHandler(self.token_manager)
+    
     def handle_message(self, message, channel, sender_name="system"):
         """Handle incoming messages and return the response message"""
         try:

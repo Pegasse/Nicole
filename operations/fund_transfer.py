@@ -219,14 +219,14 @@ class FundTransferHandler:
                 response_text = f"@{sender_name}: Successfully transferred ${amount} from {original_from} to {original_to}. Transaction ID: {transaction_id_text}"
                 
             # Send the success message to Nicole channel - using same channel as old_brain.py
-            send_cliq_message("Nicole", response_text)
+            logger.info(response_text)
             
             # For MCAsie transfers, also send a notification to recipient like in old_brain.py
             to_mcasie = any(key == to_account and 'mcasie' in key.lower() for key in self.account_ids.keys())
             is_cash_in_transit = to_account == 'cash_in_transit'
             if to_mcasie or is_cash_in_transit:
                 recipient_msg = f"RAC: {sender_name} sent ${amount} from {original_from} to {original_to}. Please confirm receipt."
-                send_cliq_message("Nicole", recipient_msg)  # old_brain.py also sent to "Nicole" channel
+                logger.info(recipient_msg)  # old_brain.py also sent to "Nicole" channel
             
             # Return successful result with transaction info - matching old_brain.py format
             return {
