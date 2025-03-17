@@ -19,8 +19,8 @@ class GrokAPIClient:
     def __init__(self):
         """Initialize the X.ai API client"""
         self.api_key = Config.GROK_API_KEY
-        # Use the official X.ai API endpoint from docs
-        self.api_url = "https://api.x.ai/v1/chat/completions"
+        # Try using a different URL format
+        self.api_url = "https://x.ai/api/v1/chat/completions"
         
         if not self.api_key:
             logger.warning("X.ai API key not found in environment variables")
@@ -28,35 +28,21 @@ class GrokAPIClient:
         # Configure SSL settings for Heroku environment
         urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
         
-        # Create a session with Heroku-specific SSL configuration
+        # Create a standard requests session without custom SSL config
         self.session = requests.Session()
         
-        # Configure SSL context for Heroku
-        ssl_context = ssl.create_default_context(cafile=certifi.where())
-        ssl_context.check_hostname = False  # Disable hostname checking for Heroku
-        ssl_context.verify_mode = ssl.CERT_NONE  # Disable certificate verification for Heroku
-        
-        # Configure retry strategy with longer timeouts
+        # Simple retry configuration
         retry_strategy = urllib3.Retry(
-            total=5,  # Increase total retries
-            backoff_factor=2,  # Increase backoff factor
+            total=3,
+            backoff_factor=0.5,
             status_forcelist=[429, 500, 502, 503, 504],
-            allowed_methods=["POST"]  # Only retry on POST requests
+            allowed_methods=["POST"]
         )
         
-        # Create custom adapter with SSL context
-        adapter = requests.adapters.HTTPAdapter(
-            max_retries=retry_strategy,
-            pool_connections=10,
-            pool_maxsize=10
-        )
-        
-        # Mount the adapter with SSL context
+        # Use a standard adapter
+        adapter = requests.adapters.HTTPAdapter(max_retries=retry_strategy)
         self.session.mount("https://", adapter)
         self.session.mount("http://", adapter)
-        
-        # Set SSL context for the session
-        self.session.verify = False  # Disable SSL verification for Heroku
     
     def parse_message(self, message):
         """Parse a message using the X.ai API"""
@@ -66,11 +52,8 @@ class GrokAPIClient:
         try:
             # Prepare the API request according to X.ai documentation
             headers = {
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-                "User-Agent": "NicoleBot/1.0",
-                "Accept": "application/json",
-                "x-api-key": self.api_key  # X.ai requires x-api-key header
+                "x-api-key": self.api_key,  # X.ai requires x-api-key header
+                "Content-Type": "application/json"
             }
             
             # Create the system prompt
@@ -105,14 +88,32 @@ class GrokAPIClient:
                 "max_tokens": 150
             }
             
-            # Make the API request with SSL verification disabled
-            response = self.session.post(
-                self.api_url, 
-                headers=headers, 
-                json=payload,
-                timeout=60,  # Increase timeout
-                verify=False  # Disable SSL verification
-            )
+            try:
+                # Try using the session first
+                response = self.session.post(
+                    self.api_url, 
+                    headers=headers, 
+                    json=payload,
+                    timeout=30  # Standard timeout
+                )
+            except (requests.exceptions.SSLError, requests.exceptions.ConnectionError) as e:
+                # If session fails with SSL or connection error, try a direct request
+                logger.warning(f"Session request failed with {type(e).__name__}: {str(e)}. Trying direct request.")
+                
+                # Try a different API URL format
+                api_url = "https://api.x.ai/v1/chat/completions"  # Alternative URL format
+                
+                # Add Authorization header as backup
+                headers["Authorization"] = f"Bearer {self.api_key}"
+                
+                # Make a direct request without session
+                response = requests.request(
+                    "POST",
+                    api_url,
+                    headers=headers,
+                    json=payload,
+                    timeout=30
+                )
             
             # Log response status and headers for debugging
             logger.debug(f"Response status: {response.status_code}")
@@ -179,12 +180,12 @@ class Brain:
     def handle_message(self, message, channel):
         """Handle incoming messages"""
         try:
-            # Parse the message using Grok API
+            # Parse the message using X.ai API
             parsed_data = self.grok_client.parse_message(message)
             
             # Validate parsed data
             if not isinstance(parsed_data, dict):
-                raise ValueError("Invalid response format from Grok API")
+                raise ValueError("Invalid response format from X.ai API")
                 
             required_fields = ["amount", "from_account", "to_account"]
             missing_fields = [field for field in required_fields if field not in parsed_data]
@@ -207,6 +208,14 @@ class Brain:
         except ValueError as e:
             logger.error(f"Validation error: {str(e)}")
             error_message = f"❌ Invalid request format: {str(e)}"
+            self.message_sender.send_message(channel, error_message)
+        except requests.exceptions.SSLError as e:
+            logger.error(f"SSL Error: {str(e)}")
+            error_message = "❌ Connection error while contacting X.ai API. Please try again later."
+            self.message_sender.send_message(channel, error_message)
+        except requests.exceptions.ConnectionError as e:
+            logger.error(f"Connection Error: {str(e)}")
+            error_message = "❌ Unable to connect to X.ai API. Please check network connection and try again later."
             self.message_sender.send_message(channel, error_message)
         except Exception as e:
             logger.error(f"Error processing message: {str(e)}")
