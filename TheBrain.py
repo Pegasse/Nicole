@@ -18,14 +18,14 @@ class GrokAPIClient:
     def __init__(self):
         """Initialize the Grok API client"""
         self.api_key = Config.GROK_API_KEY
-        # Resolve the IP address for api.grok.ai
+        # Resolve the IP address for api.x.ai
         try:
-            ip_address = socket.gethostbyname('api.grok.ai')
+            ip_address = socket.gethostbyname('api.x.ai')
             self.api_url = f"https://{ip_address}/v1/chat/completions"
             logger.info(f"Using Grok API IP: {ip_address}")
         except socket.gaierror as e:
-            logger.error(f"Failed to resolve api.grok.ai: {e}")
-            self.api_url = "https://api.grok.ai/v1/chat/completions"
+            logger.error(f"Failed to resolve api.x.ai: {e}")
+            self.api_url = "https://api.x.ai/v1/chat/completions"
         
         if not self.api_key:
             logger.warning("Grok API key not found in environment variables")
@@ -75,7 +75,7 @@ class GrokAPIClient:
                 "Content-Type": "application/json",
                 "User-Agent": "NicoleBot/1.0",
                 "Accept": "application/json",
-                "Host": "api.grok.ai"  # Add Host header
+                "Host": "api.x.ai"  # Add Host header
             }
             
             # Create the system prompt
