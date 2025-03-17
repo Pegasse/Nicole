@@ -19,16 +19,14 @@ class GrokAPIClient:
     def __init__(self):
         """Initialize the X.ai API client"""
         self.api_key = Config.GROK_API_KEY
-        # Try using a different URL format
-        self.api_url = "https://x.ai/api/v1/chat/completions"
+        
+        # Use the official API endpoint
+        self.api_url = "https://api.x.ai/v1/chat/completions"
         
         if not self.api_key:
             logger.warning("X.ai API key not found in environment variables")
         
-        # Configure SSL settings for Heroku environment
-        urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-        
-        # Create a standard requests session without custom SSL config
+        # Create a standard requests session
         self.session = requests.Session()
         
         # Simple retry configuration
@@ -52,8 +50,9 @@ class GrokAPIClient:
         try:
             # Prepare the API request according to X.ai documentation
             headers = {
-                "x-api-key": self.api_key,  # X.ai requires x-api-key header
-                "Content-Type": "application/json"
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+                "User-Agent": "NicoleBot/1.0"
             }
             
             # Create the system prompt
@@ -79,7 +78,7 @@ class GrokAPIClient:
             
             # Create the request payload according to X.ai documentation
             payload = {
-                "model": "grok-2",  # Updated to use grok-2 as per X.ai docs
+                "model": "grok-2",
                 "messages": [
                     {"role": "system", "content": system_content},
                     {"role": "user", "content": message}
@@ -88,32 +87,13 @@ class GrokAPIClient:
                 "max_tokens": 150
             }
             
-            try:
-                # Try using the session first
-                response = self.session.post(
-                    self.api_url, 
-                    headers=headers, 
-                    json=payload,
-                    timeout=30  # Standard timeout
-                )
-            except (requests.exceptions.SSLError, requests.exceptions.ConnectionError) as e:
-                # If session fails with SSL or connection error, try a direct request
-                logger.warning(f"Session request failed with {type(e).__name__}: {str(e)}. Trying direct request.")
-                
-                # Try a different API URL format
-                api_url = "https://api.x.ai/v1/chat/completions"  # Alternative URL format
-                
-                # Add Authorization header as backup
-                headers["Authorization"] = f"Bearer {self.api_key}"
-                
-                # Make a direct request without session
-                response = requests.request(
-                    "POST",
-                    api_url,
-                    headers=headers,
-                    json=payload,
-                    timeout=30
-                )
+            # Make the API request
+            response = self.session.post(
+                self.api_url, 
+                headers=headers, 
+                json=payload,
+                timeout=30
+            )
             
             # Log response status and headers for debugging
             logger.debug(f"Response status: {response.status_code}")
