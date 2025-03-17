@@ -39,7 +39,7 @@ class Brain:
             parsed_data = self.grok_client.parse_message(message)
             logger.info(f"Parsed data: {parsed_data}")
             
-            # Check if we have minimum required information
+            # Check if we have the minimum required information
             if not parsed_data.get("amount"):
                 response_text = f"@{sender_name}: I couldn't understand your request. Please include an amount to transfer."
                 self.cliq_sender.send_message("Nicole", response_text)
