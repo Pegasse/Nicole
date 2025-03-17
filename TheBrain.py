@@ -422,15 +422,14 @@ def parse_with_grok(message):
 # Function to move funds to Cash in Transit in Zoho Books
 def move_funds_to_cash_in_transit(parsed_data):
     try:
-        # Ensure we have a valid token before making the API call
         ensure_valid_token()
     except Exception as e:
         return {"code": -1, "message": f"Token validation failed: {str(e)}"}
     
     # Extract data from parsed result
     amount = parsed_data.get("amount")
-    from_account = parsed_data.get("from_account", "MC Cash")  # Default to MC Cash if not specified
-    to_account = parsed_data.get("to_account", "Cash In Transit")  # Default to Cash In Transit if not specified
+    from_account = parsed_data.get("from_account", "MC Cash")
+    to_account = parsed_data.get("to_account", "Cash In Transit")
     purpose = parsed_data.get("purpose", "Funds Transfer")
     description = parsed_data.get("description", f"Transfer for {purpose}")
     
@@ -455,157 +454,91 @@ def move_funds_to_cash_in_transit(parsed_data):
     to_account_id = account_id_map.get(to_account)
     
     # Validate account IDs
-    if not from_account_id:
-        return {"code": -1, "message": f"Unknown from account: {from_account}"}
-    if not to_account_id:
-        return {"code": -1, "message": f"Unknown to account: {to_account}"}
+    if not from_account_id or not to_account_id:
+        return {"code": -1, "message": f"Unknown account: {from_account if not from_account_id else to_account}"}
     
-    # Determine if this is an inter-location transfer
-    def get_location_prefix(account):
-        account = str(account).upper()
-        if "MC " in account and "MCASIE" not in account:
-            return "MC"
-        elif "BE " in account:
-            return "BE"
-        elif "MCASIE" in account:
-            return "MCASIE"
-        return None
-    
-    from_location = get_location_prefix(from_account)
-    to_location = get_location_prefix(to_account)
-    
-    # If this is an inter-location transfer, we need to create two transactions
-    if from_location and to_location and from_location != to_location:
-        print(f"Inter-location transfer detected: {from_location} to {to_location}")
-        
-        # First transaction: from_account to Cash In Transit
-        first_transaction = {
-            "date": date.today().isoformat(),
-            "from_account_id": from_account_id,
-            "to_account_id": account_id_map["Cash In Transit"],
-            "amount": amount,
-            "reference_number": f"TRANSFER-{date.today().strftime('%Y%m%d')}-{int(datetime.now().timestamp()) % 10000}",
-            "description": f"{description} (Part 1: {from_account} to Cash In Transit)",
-            "transaction_type": "transfer_fund"
-        }
-        
-        # Second transaction: Cash In Transit to to_account
-        second_transaction = {
-            "date": date.today().isoformat(),
-            "from_account_id": account_id_map["Cash In Transit"],
-            "to_account_id": to_account_id,
-            "amount": amount,
-            "reference_number": f"TRANSFER-{date.today().strftime('%Y%m%d')}-{int(datetime.now().timestamp()) % 10000}",
-            "description": f"{description} (Part 2: Cash In Transit to {to_account})",
-            "transaction_type": "transfer_fund"
-        }
-        
-        try:
-            # Execute first transaction
-            full_url = f"{ZOHO_API_URL}/banktransactions?organization_id={ZOHO_ORG_ID}"
-            headers = {
-                **ZOHO_HEADERS,
-                "Accept": "application/json",
-                "Content-Type": "application/json"
-            }
-            
-            print(f"Executing first transaction: {from_account} to Cash In Transit")
-            response1 = requests.post(full_url, headers=headers, json=first_transaction)
-            print(f"First transaction response: {response1.status_code}")
-            
-            if response1.status_code >= 400:
-                return {"code": response1.status_code, "message": f"First transaction failed: {response1.text}"}
-            
-            # Execute second transaction
-            print(f"Executing second transaction: Cash In Transit to {to_account}")
-            response2 = requests.post(full_url, headers=headers, json=second_transaction)
-            print(f"Second transaction response: {response2.status_code}")
-            
-            if response2.status_code >= 400:
-                return {"code": response2.status_code, "message": f"Second transaction failed: {response2.text}"}
-            
-            # Both transactions succeeded
-            return {
-                "code": 0,
-                "message": "Both transactions completed successfully",
-                "first_transaction": response1.json(),
-                "second_transaction": response2.json()
-            }
-            
-        except requests.exceptions.RequestException as e:
-            error_message = f"Request Error: {str(e)}"
-            print(error_message)
-            return {"code": -1, "message": error_message}
-    
-    # For same-location transfers, proceed with single transaction
+    # Common transaction parameters
     current_date = date.today().isoformat()
     reference_number = f"TRANSFER-{date.today().strftime('%Y%m%d')}-{int(datetime.now().timestamp()) % 10000}"
     
-    # Format payload according to Zoho Books API documentation for bank transactions
-    payload = {
+    # Common headers and URL
+    headers = {
+        **ZOHO_HEADERS,
+        "Accept": "application/json",
+        "Content-Type": "application/json"
+    }
+    full_url = f"{ZOHO_API_URL}/banktransactions?organization_id={ZOHO_ORG_ID}"
+    
+    def execute_transaction(payload):
+        """Helper function to execute a single transaction"""
+        try:
+            print(f"Executing transaction: {payload['from_account_id']} to {payload['to_account_id']}")
+            response = requests.post(full_url, headers=headers, json=payload)
+            print(f"Transaction response: {response.status_code}")
+            
+            if response.status_code >= 400:
+                return {"code": response.status_code, "message": f"Transaction failed: {response.text}"}
+            
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            return {"code": -1, "message": f"Request Error: {str(e)}"}
+    
+    # Check if this is a transfer to MCAsie
+    is_mcasie_transfer = any(x in str(to_account).upper() for x in ["MCASIE", "RAC", "ASIE"])
+    
+    if is_mcasie_transfer:
+        # For MCAsie transfers, proceed with single transaction
+        payload = {
+            "date": current_date,
+            "from_account_id": from_account_id,
+            "to_account_id": to_account_id,
+            "amount": amount,
+            "reference_number": reference_number,
+            "description": description,
+            "transaction_type": "transfer_fund"
+        }
+        return execute_transaction(payload)
+    
+    # For all other transfers, create two transactions
+    print(f"Creating double transaction: {from_account} to {to_account}")
+    
+    # First transaction: from_account to Cash In Transit
+    first_transaction = {
         "date": current_date,
         "from_account_id": from_account_id,
-        "to_account_id": to_account_id,
+        "to_account_id": account_id_map["Cash In Transit"],
         "amount": amount,
         "reference_number": reference_number,
-        "description": description,
-        "transaction_type": "transfer_fund"  # Specify that this is a transfer transaction
+        "description": f"{description} (Part 1: {from_account} to Cash In Transit)",
+        "transaction_type": "transfer_fund"
     }
     
-    try:
-        # Use the correct endpoint for bank transactions
-        full_url = f"{ZOHO_API_URL}/banktransactions?organization_id={ZOHO_ORG_ID}"
-        print(f"Sending request to URL: {full_url}")
-        print(f"Using auth token: {ZOHO_TOKEN[:10]}...")
+    # Second transaction: Cash In Transit to to_account
+    second_transaction = {
+        "date": current_date,
+        "from_account_id": account_id_map["Cash In Transit"],
+        "to_account_id": to_account_id,
+        "amount": amount,
+        "reference_number": f"{reference_number}-2",
+        "description": f"{description} (Part 2: Cash In Transit to {to_account})",
+        "transaction_type": "transfer_fund"
+    }
+    
+    # Execute both transactions
+    result1 = execute_transaction(first_transaction)
+    if result1.get("code") != 0:
+        return result1
         
-        # Add proper headers
-        headers = {
-            **ZOHO_HEADERS,
-            "Accept": "application/json",
-            "Content-Type": "application/json"
-        }
-        
-        response = requests.post(full_url, headers=headers, json=payload)
-        print(f"Response status code: {response.status_code}")
-        
-        # Check if response is HTML (indicating a redirect)
-        if response.headers.get('content-type', '').startswith('text/html'):
-            print("Received HTML response instead of JSON - likely an authentication or endpoint issue")
-            return {"code": -1, "message": "API request failed - received invalid response format"}
-        
-        # Try to get the response as JSON
-        try:
-            result = response.json()
-            print(f"Response body: {json.dumps(result)[:200]}...")
-        except Exception as e:
-            print(f"Could not parse response as JSON: {str(e)}")
-            return {"code": -1, "message": f"Invalid response format: {str(e)}"}
-        
-        # Check for HTTP errors
-        if response.status_code >= 400:
-            error_message = f"HTTP Error: {response.status_code}"
-            if isinstance(result, dict):
-                error_message += f" - {result.get('message', 'Unknown error')}"
-            
-            print(error_message)
-            
-            # Special handling of common errors
-            if response.status_code == 401:
-                error_message = "Authentication failed. Your Zoho token was rejected."
-            elif response.status_code == 403:
-                error_message = "Permission denied. Your Zoho token doesn't have the required permissions."
-            elif response.status_code == 404:
-                error_message = "API endpoint not found. Please check the Zoho Books API documentation."
-            
-            return {"code": response.status_code, "message": error_message}
-        
-        print(f"Zoho API Response: {result}")
-        return result
-        
-    except requests.exceptions.RequestException as e:
-        error_message = f"Request Error: {str(e)}"
-        print(error_message)
-        return {"code": -1, "message": error_message}
+    result2 = execute_transaction(second_transaction)
+    if result2.get("code") != 0:
+        return result2
+    
+    return {
+        "code": 0,
+        "message": "Both transactions completed successfully",
+        "first_transaction": result1,
+        "second_transaction": result2
+    }
 
 # Function to send Cliq message (placeholder)
 def send_cliq_message(channel, text):
@@ -615,9 +548,6 @@ def send_cliq_message(channel, text):
 def handle_message(message, sender):
     parsed = parse_with_grok(message)
     print(f"Parsed data: {parsed}")
-    
-    # Prepare response message
-    response_text = ""
     
     # Check if we have minimum required information
     if not parsed.get("amount"):
@@ -634,26 +564,30 @@ def handle_message(message, sender):
         result = move_funds_to_cash_in_transit(parsed)
         
         if result.get("code") == 0:  # Zoho API success code
-            # Get transaction ID if available
-            transaction_id = ""
-            if "banktransfer" in result:
-                transaction_id = result["banktransfer"].get("banktransfer_id", "Unknown")
-            
             # Extract accounts for message
             from_account = parsed.get("from_account", "MC Cash")
             to_account = parsed.get("to_account", "Cash In Transit")
             purpose = parsed.get("purpose", "")
             purpose_text = f" for '{purpose}'" if purpose else ""
-            location = parsed.get("location", "")
-            location_text = f" (at {location})" if location else ""
+            
+            # Get transaction IDs
+            transaction_ids = []
+            if "first_transaction" in result:
+                transaction_ids.append(result["first_transaction"].get("banktransfer", {}).get("banktransfer_id", "Unknown"))
+            if "second_transaction" in result:
+                transaction_ids.append(result["second_transaction"].get("banktransfer", {}).get("banktransfer_id", "Unknown"))
+            if not transaction_ids and "banktransfer" in result:
+                transaction_ids.append(result["banktransfer"].get("banktransfer_id", "Unknown"))
+            
+            transaction_id_text = " and ".join(transaction_ids)
             
             # Success message
-            response_text = f"@{sender}: Successfully transferred ${parsed['amount']} from {from_account} to {to_account}{purpose_text}{location_text}. Transaction ID: {transaction_id}"
+            response_text = f"@{sender}: Successfully transferred ${parsed['amount']} from {from_account} to {to_account}{purpose_text}. Transaction ID(s): {transaction_id_text}"
             send_cliq_message("Nicole", response_text)
             
             # Also notify recipient if MCAsie/RAC
             if "MCAsie" in to_account or to_account == "Cash In Transit":
-                recipient_msg = f"RAC: {sender} sent ${parsed['amount']} from {from_account} to {to_account}{purpose_text}{location_text}. Please confirm receipt."
+                recipient_msg = f"RAC: {sender} sent ${parsed['amount']} from {from_account} to {to_account}{purpose_text}. Please confirm receipt."
                 send_cliq_message("Nicole", recipient_msg)
                 
             return {"status": "success", "text": response_text}
