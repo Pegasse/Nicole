@@ -1,4 +1,5 @@
 import requests
+import json
 from config import Config, logger
 
 class CliqMessageSender:
@@ -25,17 +26,17 @@ class CliqMessageSender:
             # Log the message we're trying to send
             logger.info(f"Sending message to {channel}: {message[:100]}{'...' if len(message) > 100 else ''}")
             
-            # Prepare the message payload according to Zoho Cliq webhook format
-            payload = {
-                "message": {
-                    "text": message,
-                    "type": "text"
-                },
-                "channel": channel,
-                "bot": {
-                    "name": "Nicole"
+            # Check the endpoint to determine the correct payload format
+            if "/message" in self.webhook_url:
+                # Format for /message endpoint
+                payload = {
+                    "text": message
                 }
-            }
+            else:
+                # Format for /incoming endpoint (webhook)
+                payload = {
+                    "text": message
+                }
             
             # Add debugging information
             logger.debug(f"Webhook URL: {self.webhook_url}")
@@ -50,9 +51,15 @@ class CliqMessageSender:
                 }
             )
             
-            # Log the response status and headers
+            # Log the response status, headers and body
             logger.debug(f"Response status: {response.status_code}")
             logger.debug(f"Response headers: {response.headers}")
+            
+            try:
+                response_body = response.json()
+                logger.debug(f"Response body: {json.dumps(response_body)}")
+            except:
+                logger.debug(f"Response text: {response.text}")
             
             if response.status_code == 401:
                 logger.error("Authentication error with Zoho Cliq webhook (401 Unauthorized)")
@@ -61,18 +68,26 @@ class CliqMessageSender:
                 # Continue execution without raising an exception
                 return {"status": "error", "reason": "authentication_failed"}
             
-            # Only raise for non-401 errors
-            if response.status_code != 200 and response.status_code != 401:
+            if response.status_code == 400:
+                logger.error("Bad request error with Zoho Cliq webhook (400 Bad Request)")
+                logger.error("Please verify the payload format matches the API requirements")
+                logger.error(f"Payload: {payload}")
+                logger.error(f"Response: {response.text}")
+                # Continue execution without raising an exception
+                return {"status": "error", "reason": "bad_request"}
+            
+            # Only raise for non-handled error codes
+            if response.status_code != 200 and response.status_code not in (400, 401):
                 response.raise_for_status()
             
             # Log success
             if response.status_code == 200:
                 logger.info(f"Message sent to channel {channel}")
-                return response.json()
+                return response.json() if response.text else {"status": "success"}
             else:
-                # For 401 errors, we've already logged the error but won't raise an exception
-                logger.info(f"Message not sent due to authentication error")
-                return {"status": "error", "reason": "authentication_failed"}
+                # For handled error codes, we've already logged the error but won't raise an exception
+                logger.info(f"Message not sent due to API error")
+                return {"status": "error", "reason": f"status_code_{response.status_code}"}
             
         except requests.exceptions.RequestException as e:
             logger.error(f"Error sending message to Zoho Cliq: {str(e)}")
