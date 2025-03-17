@@ -125,14 +125,49 @@ class FundTransferHandler:
             # Execute the transfer
             result = self.execute_transfer(amount, from_account_id, to_account_id)
             
+            # Extract transaction IDs for the message
+            transaction_ids = []
+            if "first_transaction" in result:
+                # Try to get the transaction ID from the JSON response
+                first_transaction = result.get("first_transaction", {})
+                if "banktransaction" in first_transaction:
+                    transaction_ids.append(first_transaction["banktransaction"].get("transaction_id", "Unknown"))
+                elif "banktransfer" in first_transaction:
+                    transaction_ids.append(first_transaction["banktransfer"].get("banktransfer_id", "Unknown"))
+                
+            if "second_transaction" in result:
+                # Try to get the transaction ID from the JSON response
+                second_transaction = result.get("second_transaction", {})
+                if "banktransaction" in second_transaction:
+                    transaction_ids.append(second_transaction["banktransaction"].get("transaction_id", "Unknown"))
+                elif "banktransfer" in second_transaction:
+                    transaction_ids.append(second_transaction["banktransfer"].get("banktransfer_id", "Unknown"))
+            
+            # If no transaction IDs were found, check for direct transaction
+            if not transaction_ids and "banktransaction" in result:
+                transaction_ids.append(result["banktransaction"].get("transaction_id", "Unknown"))
+            elif not transaction_ids and "banktransfer" in result:
+                transaction_ids.append(result["banktransfer"].get("banktransfer_id", "Unknown"))
+            
+            # Join transaction IDs for display
+            transaction_id_text = " and ".join(transaction_ids) if transaction_ids else "N/A"
+            
             # Send success message, but don't fail if message sending fails
             if "second_transaction" in result:
                 # This was a two-step transfer
-                response_text = f"@{sender_name}: Successfully transferred {amount} from {original_from} to {original_to} via Cash In Transit"
+                response_text = f"@{sender_name}: Successfully transferred ${amount} from {original_from} to {original_to} via Cash In Transit. Transaction ID(s): {transaction_id_text}"
             else:
-                response_text = f"@{sender_name}: Successfully transferred {amount} from {original_from} to {original_to}"
+                response_text = f"@{sender_name}: Successfully transferred ${amount} from {original_from} to {original_to}. Transaction ID: {transaction_id_text}"
                 
+            # Send the success message to Nicole channel
             self.cliq_sender.send_message("Nicole", response_text)
+            
+            # For MCAsie transfers, also send a notification to recipient like in old_brain.py
+            to_mcasie = any(key == to_account and 'mcasie' in key.lower() for key in self.account_ids.keys())
+            is_cash_in_transit = to_account == 'cash_in_transit'
+            if to_mcasie or is_cash_in_transit:
+                recipient_msg = f"RAC: {sender_name} sent ${amount} from {original_from} to {original_to}. Please confirm receipt."
+                self.cliq_sender.send_message("Nicole", recipient_msg)
             
             # Return successful result with transaction info
             return {

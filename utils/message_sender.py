@@ -14,17 +14,28 @@ class CliqMessageSender:
         self.cliq_enabled = bool(self.webhook_url)
         
         if not self.cliq_enabled:
-            logger.info("Zoho Cliq integration disabled - messages will be logged but not sent")
-        elif not self.webhook_url.startswith("https://cliq.zoho.com"):
-            logger.warning(f"Zoho Cliq webhook URL may be invalid: {self.webhook_url}")
+            logger.warning("⚠️ Zoho Cliq integration DISABLED - messages will be logged but not sent")
+            logger.warning("To enable Cliq integration, set CLIQ_WEBHOOK_URL in your DigitalOcean environment variables")
+        else:
+            logger.info("✅ Zoho Cliq integration ENABLED - messages will be sent to Cliq")
+            
+        if self.cliq_enabled and not self.webhook_url.startswith("https://cliq.zoho.com"):
+            logger.warning(f"❌ Zoho Cliq webhook URL may be invalid: {self.webhook_url}")
+            
+        # Log the bot token status
+        if self.cliq_enabled and not self.bot_token:
+            logger.warning("⚠️ Zoho Bot Token is missing - webhook functionality may be limited")
+        elif self.cliq_enabled:
+            logger.info("✅ Zoho Bot Token is configured")
     
-    def send_message(self, channel, message):
+    def send_message(self, channel, text):
         """Send a message to a Zoho Cliq channel or log it if integration is disabled"""
         # Always log the message locally, just like the original code did
-        logger.info(f"[TO {channel}]: {message}")
+        logger.info(f"[TO {channel}]: {text}")
         
         # If Cliq integration is disabled, just return success without attempting to send
         if not self.cliq_enabled:
+            logger.info("📝 Message logged locally only (Cliq integration disabled)")
             return {"status": "logged_only", "reason": "cliq_integration_disabled"}
         
         # From here on, only execute if Cliq integration is enabled
@@ -41,7 +52,7 @@ class CliqMessageSender:
                     
                     # Simple text message payload
                     payload = {
-                        "text": message
+                        "text": text
                     }
                     
                     # Add channel/chat id if not the default
@@ -60,7 +71,7 @@ class CliqMessageSender:
                     
                     # Simple message
                     payload = {
-                        "text": message
+                        "text": text
                     }
             # For webhook integration - simpler format
             else:
@@ -70,7 +81,7 @@ class CliqMessageSender:
                 
                 # Simple message for webhook endpoint
                 payload = {
-                    "text": message
+                    "text": text
                 }
             
             # Add debugging information
