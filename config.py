@@ -17,6 +17,7 @@ class Config:
     ZOHO_CLIENT_SECRET = os.getenv('ZOHO_CLIENT_SECRET')
     ZOHO_REFRESH_TOKEN = os.getenv('ZOHO_REFRESH_TOKEN')
     ZOHO_REDIRECT_URI = os.getenv('ZOHO_REDIRECT_URI')
+    ZOHO_ORG_ID = os.getenv('ZOHO_ORG_ID')  # Added organization ID
     
     # Account IDs from old_brain.py
     # MicroConcept accounts
