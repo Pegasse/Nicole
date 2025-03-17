@@ -39,8 +39,9 @@ class FundTransferHandler:
             # Validate accounts
             if not from_account or not to_account:
                 response_text = f"@{sender_name}: Please specify both 'from' and 'to' accounts for the transfer."
+                # Send the message but don't fail if message sending fails
                 self.cliq_sender.send_message("Nicole", response_text)
-                return {"status": "error", "text": response_text}
+                return {"status": "error", "message": response_text, "amount": amount, "from_account": from_account, "to_account": to_account}
             
             # Get account IDs
             from_account_id = self.account_ids.get(from_account)
@@ -48,23 +49,45 @@ class FundTransferHandler:
             
             if not from_account_id or not to_account_id:
                 response_text = f"@{sender_name}: Invalid account name(s). Valid accounts are: {', '.join(self.account_ids.keys())}"
+                # Send the message but don't fail if message sending fails
                 self.cliq_sender.send_message("Nicole", response_text)
-                return {"status": "error", "text": response_text}
+                return {"status": "error", "message": response_text, "amount": amount, "from_account": from_account, "to_account": to_account}
             
             # Execute the transfer
             result = self.execute_transfer(amount, from_account_id, to_account_id)
             
-            # Send success message
+            # Send success message, but don't fail if message sending fails
             response_text = f"@{sender_name}: Successfully transferred {amount} from {from_account} to {to_account}"
             self.cliq_sender.send_message("Nicole", response_text)
-            return {"status": "success", "text": response_text}
+            
+            # Return successful result
+            return {
+                "status": "success", 
+                "message": response_text, 
+                "amount": amount, 
+                "from_account": from_account, 
+                "to_account": to_account
+            }
             
         except Exception as e:
             error_message = f"Error processing transfer: {str(e)}"
             logger.error(error_message, exc_info=True)
+            
+            # Try to send error message, but don't fail if message sending fails
             response_text = f"@{sender_name}: {error_message}"
-            self.cliq_sender.send_message("Nicole", response_text)
-            return {"status": "error", "text": error_message}
+            try:
+                self.cliq_sender.send_message("Nicole", response_text)
+            except Exception as msg_error:
+                logger.error(f"Failed to send error message: {str(msg_error)}")
+            
+            # Return error result with all the information we have
+            return {
+                "status": "error", 
+                "message": error_message, 
+                "amount": parsed_data.get('amount'), 
+                "from_account": parsed_data.get('from_account', ''), 
+                "to_account": parsed_data.get('to_account', '')
+            }
     
     def execute_transfer(self, amount, from_account_id, to_account_id):
         """Execute the fund transfer in Zoho Books"""

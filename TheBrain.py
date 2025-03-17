@@ -183,9 +183,20 @@ class Brain:
                 # Execute the fund transfer with the specified sender name
                 result = self.fund_transfer_handler.process(parsed_data, sender_name)
                 
-                # Send success message
-                success_message = f"✅ Transfer completed successfully!\nAmount: {result['amount']}\nFrom: {result['from_account']}\nTo: {result['to_account']}"
-                self.message_sender.send_message(channel, success_message)
+                # If result contains a status and message, we can use those
+                if result and isinstance(result, dict) and "status" in result:
+                    if result["status"] == "success":
+                        # Send success message
+                        success_message = f"✅ Transfer completed successfully!\nAmount: {result.get('amount')}\nFrom: {result.get('from_account')}\nTo: {result.get('to_account')}"
+                        self.message_sender.send_message(channel, success_message)
+                    else:
+                        # Send the error message from the result
+                        error_message = f"❌ Transfer failed: {result.get('message', 'Unknown error')}"
+                        self.message_sender.send_message(channel, error_message)
+                else:
+                    # Fallback success message if result format is unexpected
+                    logger.warning(f"Unexpected result format from fund_transfer_handler: {result}")
+                    self.message_sender.send_message(channel, "✅ Transfer request processed.")
             else:
                 # Send error message if parsing failed
                 error_message = "❌ Sorry, I couldn't understand the transfer details. Please try again with a clearer message."
@@ -194,19 +205,31 @@ class Brain:
         except ValueError as e:
             logger.error(f"Validation error: {str(e)}")
             error_message = f"❌ Invalid request format: {str(e)}"
-            self.message_sender.send_message(channel, error_message)
+            try:
+                self.message_sender.send_message(channel, error_message)
+            except Exception as msg_error:
+                logger.error(f"Failed to send error message: {str(msg_error)}")
         except requests.exceptions.SSLError as e:
             logger.error(f"SSL Error: {str(e)}")
             error_message = "❌ Connection error while contacting X.ai API. Please try again later."
-            self.message_sender.send_message(channel, error_message)
+            try:
+                self.message_sender.send_message(channel, error_message)
+            except Exception as msg_error:
+                logger.error(f"Failed to send error message: {str(msg_error)}")
         except requests.exceptions.ConnectionError as e:
             logger.error(f"Connection Error: {str(e)}")
             error_message = "❌ Unable to connect to X.ai API. Please check network connection and try again later."
-            self.message_sender.send_message(channel, error_message)
+            try:
+                self.message_sender.send_message(channel, error_message)
+            except Exception as msg_error:
+                logger.error(f"Failed to send error message: {str(msg_error)}")
         except Exception as e:
-            logger.error(f"Error processing message: {str(e)}")
+            logger.error(f"Error processing message: {str(e)}", exc_info=True)
             error_message = f"❌ An error occurred: {str(e)}"
-            self.message_sender.send_message(channel, error_message)
+            try:
+                self.message_sender.send_message(channel, error_message)
+            except Exception as msg_error:
+                logger.error(f"Failed to send error message: {str(msg_error)}")
 
 # Initialize components
 token_manager = ZohoTokenManager()
