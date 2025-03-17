@@ -7,6 +7,7 @@ import socket
 from operations.fund_transfer import FundTransferHandler
 from config import Config, logger
 from utils.token_manager import ZohoTokenManager
+from utils.message_utils import send_cliq_message
 import json
 import os
 import sys
@@ -25,10 +26,6 @@ load_dotenv()
 # Create Flask application
 app = Flask(__name__)
 app.secret_key = Config.FLASK_SECRET_KEY
-
-# Function to send Cliq message (exactly like old_brain.py)
-def send_cliq_message(channel, text):
-    print(f"To {channel}: {text}")  # Replace with actual Cliq API call
 
 class GrokAPIClient:
     """Client for interacting with the X.ai API"""

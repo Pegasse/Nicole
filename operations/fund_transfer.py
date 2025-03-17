@@ -4,7 +4,7 @@ import logging
 from datetime import date, datetime
 import requests
 from config import Config, logger
-from TheBrain import send_cliq_message
+from utils.message_utils import send_cliq_message
 
 logger = logging.getLogger(__name__)
 
