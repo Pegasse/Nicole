@@ -223,9 +223,16 @@ def webhook():
         if not data:
             return jsonify({"error": "No data received"}), 400
             
+        # Extract message and channel from the data
+        message = data.get("message")
+        channel = data.get("channel", "Nicole")  # Default to "Nicole" if channel not specified
+        
+        if not message:
+            return jsonify({"error": "No message found in request"}), 400
+            
         # Process the message using TheBrain
-        response = brain.handle_message(data["message"], data["channel"])
-        return jsonify(response)
+        brain.handle_message(message, channel)
+        return jsonify({"status": "success"})
         
     except Exception as e:
         logger.error(f"Error processing webhook: {str(e)}")
