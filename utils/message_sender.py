@@ -25,9 +25,13 @@ class CliqMessageSender:
             # Log the message we're trying to send
             logger.info(f"Sending message to {channel}: {message[:100]}{'...' if len(message) > 100 else ''}")
             
-            # Prepare the message payload
+            # Prepare the message payload according to Zoho Cliq webhook format
             payload = {
-                "text": message,  # Use 'text' instead of 'message'
+                "message": {
+                    "text": message,
+                    "type": "text"
+                },
+                "channel": channel,
                 "bot": {
                     "name": "Nicole"
                 }
@@ -38,7 +42,13 @@ class CliqMessageSender:
             logger.debug(f"Payload: {payload}")
             
             # Send the message
-            response = requests.post(self.webhook_url, json=payload)
+            response = requests.post(
+                self.webhook_url, 
+                json=payload,
+                headers={
+                    "Content-Type": "application/json"
+                }
+            )
             
             # Log the response status and headers
             logger.debug(f"Response status: {response.status_code}")
@@ -47,6 +57,7 @@ class CliqMessageSender:
             if response.status_code == 401:
                 logger.error("Authentication error with Zoho Cliq webhook (401 Unauthorized)")
                 logger.error("Please verify your webhook URL is correct and active")
+                logger.error(f"Webhook URL: {self.webhook_url}")
                 # Continue execution without raising an exception
                 return {"status": "error", "reason": "authentication_failed"}
             
