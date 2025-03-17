@@ -10,23 +10,25 @@ class CliqMessageSender:
         self.webhook_url = Config.CLIQ_WEBHOOK_URL
         self.bot_token = Config.ZOHO_BOT_TOKEN
         
-        if not self.webhook_url:
-            logger.warning("Zoho Cliq webhook URL not found in environment variables")
+        # Check if Cliq integration is actually enabled
+        self.cliq_enabled = bool(self.webhook_url)
+        
+        if not self.cliq_enabled:
+            logger.info("Zoho Cliq integration disabled - messages will be logged but not sent")
         elif not self.webhook_url.startswith("https://cliq.zoho.com"):
             logger.warning(f"Zoho Cliq webhook URL may be invalid: {self.webhook_url}")
     
     def send_message(self, channel, message):
-        """Send a message to a Zoho Cliq channel"""
-        if not self.webhook_url:
-            logger.error("Zoho Cliq webhook URL not configured")
-            # Instead of raising an exception, just log the message locally and continue
-            logger.info(f"Would have sent to {channel}: {message}")
-            return {"status": "not_sent", "reason": "webhook_not_configured"}
+        """Send a message to a Zoho Cliq channel or log it if integration is disabled"""
+        # Always log the message locally, just like the original code did
+        logger.info(f"[TO {channel}]: {message}")
         
+        # If Cliq integration is disabled, just return success without attempting to send
+        if not self.cliq_enabled:
+            return {"status": "logged_only", "reason": "cliq_integration_disabled"}
+        
+        # From here on, only execute if Cliq integration is enabled
         try:
-            # Log the message we're trying to send
-            logger.info(f"Sending message to {channel}: {message[:100]}{'...' if len(message) > 100 else ''}")
-            
             # For bot message to channel or chat - the standard API method
             if "bots/nicole/message" in self.webhook_url:
                 # Use the bot token method
