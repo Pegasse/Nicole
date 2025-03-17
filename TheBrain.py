@@ -157,8 +157,14 @@ class Brain:
         self.fund_transfer_handler = FundTransferHandler(self.token_manager)
         self.grok_client = GrokAPIClient()
     
-    def handle_message(self, message, channel):
-        """Handle incoming messages"""
+    def handle_message(self, message, channel, sender_name="system"):
+        """Handle incoming messages
+        
+        Args:
+            message (str): The message to process
+            channel (str): The channel to send responses to
+            sender_name (str): The name of the message sender, defaults to "system"
+        """
         try:
             # Parse the message using X.ai API
             parsed_data = self.grok_client.parse_message(message)
@@ -174,8 +180,8 @@ class Brain:
             
             # Process the parsed data
             if parsed_data:
-                # Execute the fund transfer
-                result = self.fund_transfer_handler.process(parsed_data)
+                # Execute the fund transfer with the specified sender name
+                result = self.fund_transfer_handler.process(parsed_data, sender_name)
                 
                 # Send success message
                 success_message = f"✅ Transfer completed successfully!\nAmount: {result['amount']}\nFrom: {result['from_account']}\nTo: {result['to_account']}"
@@ -230,12 +236,13 @@ def webhook():
         # Extract message and channel from the data
         message = data.get("message")
         channel = data.get("channel", "Nicole")  # Default to "Nicole" if channel not specified
+        sender_name = data.get("sender_name", "system")  # Extract sender name or use default
         
         if not message:
             return jsonify({"error": "No message found in request"}), 400
             
-        # Process the message using TheBrain
-        brain.handle_message(message, channel)
+        # Process the message using TheBrain, passing sender_name
+        brain.handle_message(message, channel, sender_name)
         return jsonify({"status": "success"})
         
     except Exception as e:
