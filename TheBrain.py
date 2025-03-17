@@ -9,9 +9,27 @@ from operations.fund_transfer import FundTransferHandler
 from config import Config, logger
 from utils.token_manager import ZohoTokenManager
 import json
+import os
+import sys
+from datetime import datetime, timedelta
+from dotenv import load_dotenv
+
+# Add the current directory to the path to import local modules
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# Import local modules
+from utils.json_parser import JsonParser
+
+# Load environment variables
+load_dotenv()
 
 # Create Flask application
 app = Flask(__name__)
+app.secret_key = Config.FLASK_SECRET_KEY
+
+# Function to send Cliq message (exactly like old_brain.py)
+def send_cliq_message(channel, text):
+    print(f"To {channel}: {text}")  # Replace with actual Cliq API call
 
 class GrokAPIClient:
     """Client for interacting with the X.ai API"""
@@ -242,7 +260,6 @@ class Brain:
     def __init__(self):
         """Initialize the brain with necessary components"""
         self.token_manager = ZohoTokenManager()
-        self.message_sender = CliqMessageSender()
         self.fund_transfer_handler = FundTransferHandler(self.token_manager)
         self.grok_client = GrokAPIClient()
     
@@ -266,7 +283,7 @@ class Brain:
                     original_response = original_response[:50] + "..."
                     
                 error_message = f"❌ I had trouble understanding your request. The AI responded with: {original_response}\n\nPlease try again with a clearer message, for example: 'Transfer $500 from BE bank to cash in transit'"
-                self.message_sender.send_message(channel, error_message)
+                send_cliq_message(channel, error_message)
                 return
                 
             # Validate parsed data
@@ -277,7 +294,7 @@ class Brain:
             missing_fields = [field for field in required_fields if field not in parsed_data]
             if missing_fields:
                 error_message = f"❌ I couldn't extract all the required information from your message. Missing: {', '.join(missing_fields)}.\n\nPlease try again with a clearer message including amount, source account, and destination account."
-                self.message_sender.send_message(channel, error_message)
+                send_cliq_message(channel, error_message)
                 return
             
             # Additional validation - amount should be a number
@@ -289,7 +306,7 @@ class Brain:
                 parsed_data["amount"] = amount
             except (ValueError, TypeError):
                 error_message = f"❌ The amount '{parsed_data['amount']}' doesn't seem to be a valid number. Please specify a positive number."
-                self.message_sender.send_message(channel, error_message)
+                send_cliq_message(channel, error_message)
                 return
             
             # Process the parsed data
@@ -300,42 +317,42 @@ class Brain:
                 if result["status"] == "success":
                     # Send success message
                     success_message = f"✅ Transfer completed successfully!\nAmount: {result.get('amount')}\nFrom: {result.get('from_account')}\nTo: {result.get('to_account')}"
-                    self.message_sender.send_message(channel, success_message)
+                    send_cliq_message(channel, success_message)
                 else:
                     # Send the error message from the result - use 'text' instead of 'message' to match old_brain.py
                     error_message = f"❌ Transfer failed: {result.get('text', 'Unknown error')}"
-                    self.message_sender.send_message(channel, error_message)
+                    send_cliq_message(channel, error_message)
             else:
                 # Fallback success message if result format is unexpected
                 logger.warning(f"Unexpected result format from fund_transfer_handler: {result}")
-                self.message_sender.send_message(channel, "✅ Transfer request processed.")
+                send_cliq_message(channel, "✅ Transfer request processed.")
             
         except ValueError as e:
             logger.error(f"Validation error: {str(e)}")
             error_message = f"❌ Invalid request format: {str(e)}"
             try:
-                self.message_sender.send_message(channel, error_message)
+                send_cliq_message(channel, error_message)
             except Exception as msg_error:
                 logger.error(f"Failed to send error message: {str(msg_error)}")
         except requests.exceptions.SSLError as e:
             logger.error(f"SSL Error: {str(e)}")
             error_message = "❌ Connection error while contacting X.ai API. Please try again later."
             try:
-                self.message_sender.send_message(channel, error_message)
+                send_cliq_message(channel, error_message)
             except Exception as msg_error:
                 logger.error(f"Failed to send error message: {str(msg_error)}")
         except requests.exceptions.ConnectionError as e:
             logger.error(f"Connection Error: {str(e)}")
             error_message = "❌ Unable to connect to X.ai API. Please check network connection and try again later."
             try:
-                self.message_sender.send_message(channel, error_message)
+                send_cliq_message(channel, error_message)
             except Exception as msg_error:
                 logger.error(f"Failed to send error message: {str(msg_error)}")
         except Exception as e:
             logger.error(f"Error processing message: {str(e)}", exc_info=True)
             error_message = f"❌ An error occurred: {str(e)}"
             try:
-                self.message_sender.send_message(channel, error_message)
+                send_cliq_message(channel, error_message)
             except Exception as msg_error:
                 logger.error(f"Failed to send error message: {str(msg_error)}")
 
