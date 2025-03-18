@@ -5,6 +5,7 @@ import ssl
 import urllib3
 import socket
 from operations.fund_transfer import FundTransferHandler
+from operations.expense import ExpenseHandler
 from config import Config, logger
 from utils.token_manager import ZohoTokenManager
 import json
@@ -246,73 +247,108 @@ class GrokAPIClient:
             logger.error(f"Error parsing message: {str(e)}")
             raise
 
+    def parse_message_with_system_content(self, message, system_content):
+        """Parse a message using the X.ai API with custom system content."""
+        if not self.api_key:
+            raise Exception("X.ai API key not configured")
+        try:
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json",
+                "User-Agent": "NicoleBot/1.0"
+            }
+            
+            payload = {
+                "model": "grok-2",
+                "messages": [
+                    {"role": "system", "content": system_content},
+                    {"role": "user", "content": message}
+                ],
+                "temperature": 0.1,
+                "max_tokens": 150
+            }
+            
+            response = self.session.post(self.api_url, headers=headers, json=payload, timeout=30)
+            response.raise_for_status()
+            result = response.json()
+            parsed_data_text = result["choices"][0]["message"]["content"]
+            
+            # Extract JSON from the response
+            json_start = parsed_data_text.find("{")
+            json_end = parsed_data_text.rfind("}")
+            if json_start != -1 and json_end != -1 and json_end > json_start:
+                json_str = parsed_data_text[json_start:json_end+1]
+                try:
+                    parsed_data = json.loads(json_str)
+                except json.JSONDecodeError:
+                    parsed_data = json.loads(parsed_data_text)
+            else:
+                parsed_data = json.loads(parsed_data_text)
+            return parsed_data
+        except Exception as e:
+            logger.error(f"Error parsing message: {str(e)}")
+            raise
+
+    def classify_transaction_type(self, message):
+        """Classify the transaction type as fund_transfer, expense, or unknown."""
+        system_content = """You are a helpful assistant that determines the type of accounting transaction from a natural language message. Classify the message as either 'fund_transfer' or 'expense'. If it's neither, classify as 'unknown'. Return the result in JSON format:
+{
+  "transaction_type": "fund_transfer" or "expense" or "unknown"
+}"""
+        parsed_data = self.parse_message_with_system_content(message, system_content)
+        return parsed_data["transaction_type"]
+
 class Brain:
     """Main brain class that coordinates message processing and business logic"""
     
     def __init__(self):
         """Initialize the brain with necessary components"""
-        self.token_manager = token_manager  # Use the already initialized token_manager
+        self.token_manager = token_manager
         self.grok_client = GrokAPIClient()
         self.fund_transfer_handler = FundTransferHandler(self.token_manager)
+        self.expense_handler = ExpenseHandler(self.token_manager)
     
     def handle_message(self, message, channel, sender_name="system"):
-        """Handle incoming messages and return the response message"""
+        """Handle incoming messages and process transactions."""
         try:
-            # Parse the message using X.ai API
-            parsed_data = self.grok_client.parse_message(message)
-            
-            # Check if we have an error in parsed data
-            if "error" in parsed_data:
-                original_response = parsed_data.get("original_response", "")
-                if original_response and len(original_response) > 50:
-                    original_response = original_response[:50] + "..."
-                error_message = f"❌ I had trouble understanding your request. The AI responded with: {original_response}\n\nPlease try again with a clearer message, for example: 'Transfer $500 from BE bank to cash in transit'"
-                return error_message
-                
-            # Validate parsed data
-            if not isinstance(parsed_data, dict):
-                raise ValueError("Invalid response format from X.ai API")
-                
-            required_fields = ["amount", "from_account", "to_account"]
-            missing_fields = [field for field in required_fields if field not in parsed_data]
-            if missing_fields:
-                error_message = f"❌ I couldn't extract all the required information from your message. Missing: {', '.join(missing_fields)}.\n\nPlease try again with a clearer message including amount, source account, and destination account."
-                return error_message
-            
-            # Additional validation - amount should be a number
-            try:
-                amount = float(parsed_data["amount"])
-                if amount <= 0:
-                    raise ValueError("Amount must be positive")
-                parsed_data["amount"] = amount
-            except (ValueError, TypeError):
-                error_message = f"❌ The amount '{parsed_data['amount']}' doesn't seem to be a valid number. Please specify a positive number."
-                return error_message
-            
-            # Process the parsed data
-            result = self.fund_transfer_handler.process(parsed_data, sender_name)
-            
-            # Handle the result
+            # Step 1: Classify the transaction type
+            transaction_type = self.grok_client.classify_transaction_type(message)
+
+            if transaction_type == "fund_transfer":
+                # Step 2: Load fund transfer instructions
+                with open("instructions/Internal Fund Transfer.txt", "r") as f:
+                    instructions = f.read()
+                # Step 3: Define system content (adjust based on your existing parsing needs)
+                system_content = f"{instructions}\n\nExtract: amount, from_account, to_account in JSON format."
+                parsed_data = self.grok_client.parse_message_with_system_content(message, system_content)
+                # Step 4: Process fund transfer
+                result = self.fund_transfer_handler.process(parsed_data, sender_name)
+
+            elif transaction_type == "expense":
+                # Step 2: Fetch expense accounts
+                expense_accounts = self.token_manager.get_expense_accounts()
+                # Step 3: Load expense instructions
+                with open("instructions/Expenses.txt", "r") as f:
+                    instructions = f.read()
+                # Step 4: Prepare account list for the prompt
+                account_list = "\n".join([f"- {acc['account_name']}, ID: {acc['account_id']}" for acc in expense_accounts])
+                system_content = f"{instructions}\n\nHere is the list of available expense accounts:\n{account_list}\n\nParse the message and extract: amount, account_id, account_name, date (default to today if unspecified), reference (brief, max 10 words), notes (full description) in JSON format."
+                parsed_data = self.grok_client.parse_message_with_system_content(message, system_content)
+                # Step 5: Process expense
+                result = self.expense_handler.process(parsed_data, sender_name)
+
+            else:
+                return "I couldn't determine the type of transaction. Please specify if it's a fund transfer or an expense."
+
+            # Step 6: Handle the result
             if result and isinstance(result, dict) and "status" in result:
                 if result["status"] == "success":
-                    success_message = f"✅ Transfer completed successfully!\nAmount: {result.get('amount')}\nFrom: {result.get('from_account')}\nTo: {result.get('to_account')}"
-                    return success_message
+                    return result["text"]
                 else:
-                    error_message = f"❌ Transfer failed: {result.get('text', 'Unknown error')}"
-                    return error_message
+                    return f"❌ Transaction failed: {result.get('text', 'Unknown error')}"
             else:
-                logger.warning(f"Unexpected result format from fund_transfer_handler: {result}")
-                return "✅ Transfer request processed."
-            
-        except ValueError as e:
-            logger.error(f"Validation error: {str(e)}")
-            return f"❌ Invalid request format: {str(e)}"
-        except requests.exceptions.SSLError as e:
-            logger.error(f"SSL Error: {str(e)}")
-            return "❌ Connection error while contacting X.ai API. Please try again later."
-        except requests.exceptions.ConnectionError as e:
-            logger.error(f"Connection Error: {str(e)}")
-            return "❌ Unable to connect to X.ai API. Please check network connection and try again later."
+                logger.warning(f"Unexpected result format: {result}")
+                return "✅ Transaction request processed."
         except Exception as e:
             logger.error(f"Error processing message: {str(e)}", exc_info=True)
             return f"❌ An error occurred: {str(e)}"
