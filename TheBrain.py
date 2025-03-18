@@ -347,17 +347,17 @@ class Brain:
 
             # Step 2: Fetch accounts from Zoho Books
             try:
-                asset_accounts = self.token_manager.get_asset_accounts()
-                logger.info(f"Fetched {len(asset_accounts)} asset accounts from Zoho Books")
+                cash_bank_accounts = self.token_manager.get_asset_accounts()
+                logger.info(f"Fetched {len(cash_bank_accounts)} cash and bank accounts from Zoho Books")
                 # Create a formatted list for the prompts
-                asset_account_list = "\n".join([
-                    f"- {acc['account_name']}, ID: {acc['account_id']}" 
-                    for acc in asset_accounts
+                cash_bank_account_list = "\n".join([
+                    f"- {acc['account_name']}, ID: {acc['account_id']} ({acc.get('account_type', 'account')})" 
+                    for acc in cash_bank_accounts
                 ])
             except Exception as e:
-                logger.warning(f"Failed to fetch asset accounts: {str(e)}")
-                asset_account_list = "Unable to fetch asset accounts from Zoho Books. Please specify account names clearly."
-                asset_accounts = []
+                logger.warning(f"Failed to fetch cash and bank accounts: {str(e)}")
+                cash_bank_account_list = "Unable to fetch cash and bank accounts from Zoho Books. Please specify account names clearly."
+                cash_bank_accounts = []
 
             if transaction_type == "fund_transfer":
                 # Step 3: Load fund transfer instructions
@@ -367,16 +367,25 @@ class Brain:
                 # Step 5: Define system content with Zoho accounts
                 system_content = f"""{instructions}
 
-Available asset accounts for transfers:
-{asset_account_list}
+Available cash and bank accounts for transfers:
+{cash_bank_account_list}
 
 Extract the following information from the message in JSON format:
 {{
     "amount": number (positive value without currency symbols),
-    "from_account": string (source account name exactly as it appears in the list above),
-    "to_account": string (destination account name exactly as it appears in the list above),
+    "from_account": string (source account name - use common names like "BE Cash", "MC Bank", etc.),
+    "to_account": string (destination account name - use common names like "BE Cash", "MC Bank", etc.),
     "reference": string (optional brief reason for transfer)
 }}
+
+Common account names you can use:
+- MC Cash - Microconcept's cash account
+- MC Bank - Microconcept's bank account 
+- BE Cash - Bellissima's cash account
+- BE Bank - Bellissima's bank account
+- MCAsie Cash - The purchasing office cash account
+- Cash In Transit - Used for transfers to MCAsie
+- Expense Provisions - Main cash account for expenses
 
 Return ONLY valid JSON format. Do not add any explanations or extra text.
 """
@@ -406,30 +415,29 @@ Return ONLY valid JSON format. Do not add any explanations or extra text.
 Here are the available expense accounts:
 {expense_account_list}
 
-Here are the available payment (asset) accounts:
-{asset_account_list}
+Here are the available payment accounts (cash & bank):
+{cash_bank_account_list}
 
 Parse the message and extract the following information in JSON format:
 {{
     "amount": number (positive value without currency symbols),
-    "account_id": string (ID from expense accounts list),
-    "account_name": string (name from expense accounts list exactly as it appears above),
-    "paid_through": string (payment account name exactly as it appears in the list above),
+    "account_id": string (optional ID from expense accounts list - only include if specified),
+    "account_name": string (name of the expense account - use the best match from above),
+    "paid_through": string (payment account name - use common names like "BE Cash", "MC Bank", etc.),
     "date": string (YYYY-MM-DD format, default to today if unspecified),
     "reference": string (brief description, max 10 words),
     "notes": string (detailed description if provided)
 }}
 
 IMPORTANT: 
-- If the payment account is not specified, use an appropriate account from the available asset accounts
-- If the expense appears to be related to a specific company (MC, BE, etc.), use the corresponding cash account
-- Use the exact account names as they appear in the lists above
+- Common payment account names include: "Expense Provisions", "MC Cash", "BE Cash", "Buying Petty Cash"
+- For expenses related to a specific company (MC, BE, etc.), use the corresponding cash account
+- If no payment account is specified, use "Expense Provisions"
 
 Example JSON responses:
 For "I bought 20 brooms worth $30 each":
 {{
   "amount": 600,
-  "account_id": "[ID from expense accounts list]",
   "account_name": "Office Supplies",
   "paid_through": "Expense Provisions",
   "date": "2025-03-18",

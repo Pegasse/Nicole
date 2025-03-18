@@ -4,8 +4,32 @@ import requests
 from config import Config, logger
 
 class ExpenseHandler:
+    """Handler for processing expense entries"""
+    
     def __init__(self, token_manager):
+        """Initialize with the token manager"""
         self.token_manager = token_manager
+        # Get expense accounts
+        self.expense_accounts = self.token_manager.get_expense_accounts()
+        # Get cash and bank accounts
+        self.cash_bank_accounts = self.token_manager.get_asset_accounts()
+        
+        # Create lookup dictionaries
+        self.expense_account_by_id = {acc["account_id"]: acc for acc in self.expense_accounts}
+        self.expense_account_by_name = {acc["account_name"].lower(): acc for acc in self.expense_accounts}
+        
+        self.payment_account_by_id = {acc["account_id"]: acc for acc in self.cash_bank_accounts}
+        self.payment_account_by_name = {acc["account_name"].lower(): acc for acc in self.cash_bank_accounts}
+        
+        # Dictionary of common payment account names and variations for flexible matching
+        self.common_payment_accounts = {
+            "expense provisions": ["expense provisions", "expense provision", "expenses provisions", "provisions", "expense account"],
+            "mc cash": ["mc cash", "microconcept cash", "microconcepts cash", "micro concept cash"],
+            "be cash": ["be cash", "bellissima cash", "bellissimas cash"],
+            "buying petty cash": ["buying petty cash", "petty cash", "buying cash", "petty"]
+        }
+        
+        logger.info(f"Expense Handler initialized with {len(self.expense_accounts)} expense accounts and {len(self.cash_bank_accounts)} payment accounts")
         # Initialize account mappings
         self.refresh_accounts()
     
@@ -183,3 +207,11 @@ class ExpenseHandler:
             error_msg = f"Error processing expense: {str(e)}"
             logger.error(error_msg)
             return {"status": "error", "text": error_msg}
+
+    def _get_payment_account_alternatives(self):
+        """Get a list of available payment account names as a formatted string"""
+        if not self.cash_bank_accounts:
+            return "No cash or bank accounts available"
+            
+        account_names = [acc["account_name"] for acc in self.cash_bank_accounts]
+        return ", ".join(account_names)

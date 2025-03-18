@@ -211,28 +211,103 @@ class ZohoTokenManager:
             return []
 
     def get_asset_accounts(self):
-        """Fetch the list of asset accounts from Zoho Books."""
-        if not self.ensure_valid_token():
-            raise Exception("Failed to get valid token")
-        try:
-            headers = {
-                "Authorization": f"Zoho-oauthtoken {self.get_token()}",
-                "Content-Type": "application/json"
-            }
-            url = f"{Config.ZOHO_API_URL}/chartofaccounts?organization_id={Config.ZOHO_ORG_ID}&account_type=asset"
-            logger.info(f"Fetching asset accounts from: {url}")
-            
-            response = requests.get(url, headers=headers, timeout=30)
-            logger.info(f"Asset accounts API response status: {response.status_code}")
-            
-            if response.status_code == 200:
-                result = response.json()
-                accounts = result.get("chartofaccounts", [])
-                logger.info(f"Successfully fetched {len(accounts)} asset accounts")
-                return accounts
+        """
+        Fetch cash and bank accounts from Zoho Books.
+        Returns a list of account objects.
+        """
+        logger.info(f"Fetching cash and bank accounts from Zoho")
+        
+        # Fetch cash accounts
+        cash_url = f"{Config.ZOHO_API_URL}/chartofaccounts?organization_id={Config.ZOHO_ORG_ID}&account_type=cash"
+        headers = {
+            "Authorization": f"Zoho-oauthtoken {self.get_token()}"
+        }
+        cash_response = requests.get(cash_url, headers=headers)
+        
+        # Fetch bank accounts
+        bank_url = f"{Config.ZOHO_API_URL}/chartofaccounts?organization_id={Config.ZOHO_ORG_ID}&account_type=bank"
+        bank_response = requests.get(bank_url, headers=headers)
+        
+        cash_accounts = []
+        bank_accounts = []
+        
+        if cash_response.status_code == 200:
+            cash_data = cash_response.json()
+            if "chartofaccounts" in cash_data:
+                cash_accounts = cash_data["chartofaccounts"]
+                logger.info(f"Successfully fetched {len(cash_accounts)} cash accounts")
             else:
-                logger.error(f"Failed to fetch asset accounts: Status {response.status_code}, Response: {response.text}")
-                return []
-        except Exception as e:
-            logger.error(f"Error fetching asset accounts: {str(e)}")
-            return [] 
+                logger.warning(f"No cash accounts found in response: {cash_data}")
+        else:
+            logger.error(f"Failed to fetch cash accounts: {cash_response.status_code} - {cash_response.text}")
+        
+        if bank_response.status_code == 200:
+            bank_data = bank_response.json()
+            if "chartofaccounts" in bank_data:
+                bank_accounts = bank_data["chartofaccounts"]
+                logger.info(f"Successfully fetched {len(bank_accounts)} bank accounts")
+            else:
+                logger.warning(f"No bank accounts found in response: {bank_data}")
+        else:
+            logger.error(f"Failed to fetch bank accounts: {bank_response.status_code} - {bank_response.text}")
+        
+        # Combine cash and bank accounts
+        accounts = cash_accounts + bank_accounts
+        
+        # Add account_type field to each account for reference
+        for acc in accounts:
+            if acc in cash_accounts:
+                acc["account_type"] = "cash"
+            else:
+                acc["account_type"] = "bank"
+        
+        if not accounts:
+            logger.warning("No cash or bank accounts found from API, creating fallback accounts")
+            accounts = self._create_fallback_accounts()
+            
+        return accounts
+    
+    def _create_fallback_accounts(self):
+        """
+        Create a list of fallback cash and bank accounts based on predefined mappings
+        from configuration to use when the API returns zero accounts.
+        """
+        fallback_accounts = []
+        account_mappings = {
+            "EXPENSE_PROVISIONS_ACCOUNT_ID": "Expense Provisions",
+            "MC_CASH_ACCOUNT_ID": "MC Cash",
+            "BE_CASH_ACCOUNT_ID": "BE Cash",
+            "MC_BANK_ACCOUNT_ID": "MC Bank",
+            "BE_BANK_ACCOUNT_ID": "BE Bank",
+            "MCASIE_CASH_ACCOUNT_ID": "MCAsie Cash",
+            "CASH_IN_TRANSIT_ACCOUNT_ID": "Cash In Transit",
+            "BUYING_PETTY_CASH_ACCOUNT_ID": "Buying Petty Cash"
+        }
+        
+        # Check if we have configured account IDs for fallback
+        fallback_id = 1000000
+        for config_key, account_name in account_mappings.items():
+            account_id = getattr(Config, config_key, None)
+            if account_id:
+                # We have a configured ID
+                account_type = "cash" if "CASH" in config_key else "bank"
+                fallback_accounts.append({
+                    "account_id": account_id,
+                    "account_name": account_name,
+                    "account_type": account_type,
+                    "is_fallback": True
+                })
+                logger.info(f"Added fallback account: {account_name} (ID: {account_id})")
+            else:
+                # No configured ID, create a dummy one with incremental ID
+                account_type = "cash" if "CASH" in config_key else "bank"
+                fallback_accounts.append({
+                    "account_id": str(fallback_id),
+                    "account_name": account_name,
+                    "account_type": account_type,
+                    "is_fallback": True
+                })
+                logger.info(f"Added dummy fallback account: {account_name} (ID: {fallback_id})")
+                fallback_id += 1
+        
+        return fallback_accounts 
