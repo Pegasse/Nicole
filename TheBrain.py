@@ -330,9 +330,48 @@ class Brain:
                 # Step 3: Load expense instructions
                 with open("instructions/Expenses.txt", "r") as f:
                     instructions = f.read()
-                # Step 4: Prepare account list for the prompt
-                account_list = "\n".join([f"- {acc['account_name']}, ID: {acc['account_id']}" for acc in expense_accounts])
-                system_content = f"{instructions}\n\nHere is the list of available expense accounts:\n{account_list}\n\nParse the message and extract: amount, account_id, account_name, date (default to today if unspecified), reference (brief, max 10 words), notes (full description) in JSON format."
+                # Step 4: Prepare account lists for the prompt
+                expense_account_list = "\n".join([f"- {acc['account_name']}, ID: {acc['account_id']}" for acc in expense_accounts])
+                
+                # Define available payment accounts
+                payment_accounts = [
+                    "MC Cash (variations: mc_cash, microconcept cash, mc cash account)",
+                    "MC Bank (variations: mc_bank, microconcept bank, mc bank account)",
+                    "MC Mpesa (variations: mc_mpesa, microconcept mpesa, mc mpesa account)",
+                    "BE Cash (variations: be_cash, bellissima cash, bellissima cash account, belli cash)",
+                    "BE Bank (variations: be_bank, bellissima bank, bellissima bank account, belli bank)",
+                    "BE Mpesa (variations: be_mpesa, bellissima mpesa, bellissima mpesa account, belli mpesa)",
+                    "MCAsie Cash (variations: mcasie_cash, mcasie, rac, asie, mcasie cash account)",
+                    "Buying Petty Cash (variations: buying_petty_cash, petty cash, buying petty)"
+                ]
+                payment_account_list = "\n".join([f"- {acc}" for acc in payment_accounts])
+                
+                system_content = f"""{instructions}
+
+Here is the list of available expense accounts:
+{expense_account_list}
+
+Here are the available payment accounts (use lowercase with underscores for spaces):
+{payment_account_list}
+
+Parse the message and extract the following information in JSON format:
+{{
+    "amount": number,
+    "account_id": string (from expense accounts list),
+    "account_name": string (from expense accounts list),
+    "paid_through": string (from payment accounts list, use lowercase with underscores),
+    "date": string (default to today if unspecified),
+    "reference": string (brief, max 10 words),
+    "notes": string (full description)
+}}
+
+Rules for paid_through:
+- If not specified, use the most appropriate cash account based on the expense account
+- For MC-related expenses, prefer MC Cash or MC Bank
+- For BE-related expenses, prefer BE Cash or BE Bank
+- For MCAsie/RAC expenses, prefer MCAsie Cash
+- For general expenses, prefer Buying Petty Cash"""
+                
                 parsed_data = self.grok_client.parse_message_with_system_content(message, system_content)
                 # Step 5: Process expense
                 result = self.expense_handler.process(parsed_data, sender_name)
