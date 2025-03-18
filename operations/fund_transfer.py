@@ -14,6 +14,132 @@ class FundTransferHandler:
         """Initialize with necessary dependencies"""
         self.token_manager = token_manager
         
+        # Load accounts from Zoho when initialized
+        self.refresh_accounts()
+        
+    def refresh_accounts(self):
+        """Refresh account information from Zoho Books"""
+        try:
+            # Get asset accounts from Zoho
+            asset_accounts = self.token_manager.get_asset_accounts()
+            logger.info(f"Loaded {len(asset_accounts)} asset accounts from Zoho Books")
+            
+            # Create a map of account names to IDs
+            self.account_ids = {}
+            self.account_display_names = {}
+            
+            # Populate account maps from Zoho data
+            for account in asset_accounts:
+                account_id = account.get('account_id')
+                account_name = account.get('account_name')
+                
+                if account_id and account_name:
+                    # Create normalized key (lowercase with underscores)
+                    normalized_key = account_name.lower().replace(' ', '_')
+                    self.account_ids[normalized_key] = account_id
+                    self.account_display_names[normalized_key] = account_name
+            
+            # Add legacy account mappings for backward compatibility
+            self._add_legacy_account_mappings()
+            
+            # Create mapping to normalize account names from parsed data
+            self.account_name_map = self._create_account_name_map()
+            
+            logger.info(f"Mapped {len(self.account_ids)} accounts for fund transfers")
+        except Exception as e:
+            logger.error(f"Error refreshing accounts: {str(e)}")
+            # Fall back to hardcoded account IDs from Config
+            self._initialize_fallback_accounts()
+    
+    def _add_legacy_account_mappings(self):
+        """Add legacy account mappings for backward compatibility"""
+        legacy_mappings = {
+            "mc_cash": Config.MC_CASH_ID,
+            "mc_bank": Config.MC_BANK_ID,
+            "mc_mpesa": Config.MC_MPESA_ID,
+            "be_cash": Config.BE_CASH_ID,
+            "be_bank": Config.BE_BANK_ID,
+            "be_mpesa": Config.BE_MPESA_ID,
+            "mcasie_cash": Config.MCASIE_CASH_ID,
+            "cash_in_transit": Config.CASH_IN_TRANSIT_ID,
+            "royalties_available": Config.ROYALTIES_AVAILABLE_ID,
+            "expense_provisions": Config.EXPENSE_PROVISIONS_ID,
+            "fond_de_caisse": Config.FOND_DE_CAISSE_ID,
+            "buying_petty_cash": Config.BUYING_PETTY_CASH_ID
+        }
+        
+        legacy_display_names = {
+            "mc_cash": "MC Cash",
+            "mc_bank": "MC Bank",
+            "mc_mpesa": "MC Mpesa",
+            "be_cash": "BE Cash",
+            "be_bank": "BE Bank", 
+            "be_mpesa": "BE Mpesa",
+            "mcasie_cash": "MCAsie Cash",
+            "cash_in_transit": "Cash In Transit",
+            "royalties_available": "Royalties Available",
+            "expense_provisions": "Expense Provisions",
+            "fond_de_caisse": "Fond de Caisse",
+            "buying_petty_cash": "Buying Petty Cash"
+        }
+        
+        # Add legacy mappings only if they don't already exist
+        for key, value in legacy_mappings.items():
+            if key not in self.account_ids and value:
+                self.account_ids[key] = value
+                self.account_display_names[key] = legacy_display_names.get(key, key.replace('_', ' ').title())
+    
+    def _create_account_name_map(self):
+        """Create mapping to normalize account names"""
+        account_map = {}
+        
+        # Add entries for all account display names
+        for key, display_name in self.account_display_names.items():
+            # Add regular form
+            account_map[display_name.lower()] = key
+            # Add with spaces replaced by underscores
+            account_map[display_name.lower().replace(' ', '_')] = key
+            # Add without spaces
+            account_map[display_name.lower().replace(' ', '')] = key
+            
+        # Add common variations
+        common_variations = {
+            "mc cash": "mc_cash",
+            "mc bank": "mc_bank",
+            "mc mpesa": "mc_mpesa",
+            "microconcept cash": "mc_cash",
+            "microconcept bank": "mc_bank",
+            "microconcept mpesa": "mc_mpesa",
+            
+            "be cash": "be_cash",
+            "be bank": "be_bank",
+            "be mpesa": "be_mpesa",
+            "bellissima cash": "be_cash",
+            "bellissima bank": "be_bank",
+            "bellissima mpesa": "be_mpesa",
+            
+            "mcasie cash": "mcasie_cash",
+            "rac": "mcasie_cash",
+            "asie": "mcasie_cash",
+            
+            "cash in transit": "cash_in_transit",
+            "royalties available": "royalties_available",
+            "expense provisions": "expense_provisions",
+            "fond de caisse": "fond_de_caisse",
+            "buying petty cash": "buying_petty_cash"
+        }
+        
+        # Add the common variations if their targets exist in account_ids
+        for variation, target in common_variations.items():
+            if target in self.account_ids:
+                account_map[variation] = target
+                
+        return account_map
+    
+    def _initialize_fallback_accounts(self):
+        """Initialize with fallback hardcoded account IDs"""
+        logger.warning("Using fallback account IDs from Config")
+        
         # Map internal names to account IDs from Config
         self.account_ids = {
             "mc_cash": Config.MC_CASH_ID,
@@ -76,7 +202,7 @@ class FundTransferHandler:
             "fond de caisse": "fond_de_caisse",
             "buying petty cash": "buying_petty_cash"
         }
-        
+    
     def process(self, parsed_data, sender_name):
         """Process a fund transfer request"""
         # Extract data from parsed result

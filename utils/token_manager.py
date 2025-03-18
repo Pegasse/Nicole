@@ -208,4 +208,20 @@ class ZohoTokenManager:
             return response.json().get("chartofaccounts", [])
         else:
             logger.error(f"Failed to fetch expense accounts: {response.text}")
+            return []
+
+    def get_asset_accounts(self):
+        """Fetch the list of asset accounts from Zoho Books."""
+        if not self.ensure_valid_token():
+            raise Exception("Failed to get valid token")
+        headers = {
+            "Authorization": f"Zoho-oauthtoken {self.get_token()}",
+            "Content-Type": "application/json"
+        }
+        url = f"{Config.ZOHO_API_URL}/chartofaccounts?organization_id={Config.ZOHO_ORG_ID}&account_type=asset"
+        response = requests.get(url, headers=headers)
+        if response.status_code == 200:
+            return response.json().get("chartofaccounts", [])
+        else:
+            logger.error(f"Failed to fetch asset accounts: {response.text}")
             return [] 

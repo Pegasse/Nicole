@@ -291,19 +291,26 @@ class GrokAPIClient:
 
     def classify_transaction_type(self, message):
         """Classify the transaction type as fund_transfer, expense, or unknown."""
-        system_content = """You are a financial transaction classifier that categorizes messages.
+        system_content = """You are a financial transaction classifier for a Zoho Books accounting system that categorizes messages.
 
 Classify the message as one of:
-1. 'fund_transfer' - For moving money between accounts (e.g., "Transfer $500 from BE Bank to Cash", "Move money from MC to BE", "Withdraw $100")
-2. 'expense' - For recording expenses (e.g., "Record $50 for office supplies", "Expense $200 for marketing", "Pay $150 for internet bill")
+1. 'fund_transfer' - For moving money between asset accounts (bank accounts, cash accounts, etc.)
+2. 'expense' - For recording expenses paid from an asset account to an expense account
 3. 'unknown' - If the message doesn't clearly indicate a financial transaction
 
-Examples:
-- "Transfer 5000 from MC bank to BE cash" → fund_transfer
-- "Pay 200 for office supplies from petty cash" → expense
-- "Record expense of 300 for advertising" → expense
-- "Move 1000 from BE to MC" → fund_transfer
-- "What's the weather today?" → unknown
+Examples for fund_transfer:
+- "Transfer 5000 from MC bank to BE cash"
+- "Move 1000 from BE Bank to MC Cash"
+- "Send 800 from MC Cash to MCAsie"
+- "Withdraw 200 from BE Bank to BE Cash"
+- "Transfer 1500 from Royalties to MC Bank"
+
+Examples for expense:
+- "Record 200 for office supplies paid from petty cash"
+- "Expense 300 for marketing paid through BE Bank"
+- "Pay 150 for internet bill from MC Bank"
+- "Record expense of 450 for transport paid through BE Mpesa"
+- "Spend 250 on stationery paid from Buying Petty Cash"
 
 Return ONLY this JSON format:
 {
@@ -329,55 +336,82 @@ class Brain:
             # Step 1: Classify the transaction type
             transaction_type = self.grok_client.classify_transaction_type(message)
 
+            # Step 2: Fetch accounts from Zoho Books
+            try:
+                asset_accounts = self.token_manager.get_asset_accounts()
+                logger.info(f"Fetched {len(asset_accounts)} asset accounts from Zoho Books")
+                # Create a formatted list for the prompts
+                asset_account_list = "\n".join([
+                    f"- {acc['account_name']}, ID: {acc['account_id']}" 
+                    for acc in asset_accounts
+                ])
+            except Exception as e:
+                logger.warning(f"Failed to fetch asset accounts: {str(e)}")
+                asset_account_list = "Unable to fetch asset accounts from Zoho Books. Please specify account names clearly."
+                asset_accounts = []
+
             if transaction_type == "fund_transfer":
-                # Step 2: Load fund transfer instructions
+                # Step 3: Load fund transfer instructions
                 with open("instructions/Internal Fund Transfer.txt", "r") as f:
                     instructions = f.read()
-                # Step 3: Define system content (adjust based on your existing parsing needs)
-                system_content = f"{instructions}\n\nExtract: amount, from_account, to_account in JSON format."
+                
+                # Step 4: Create a mapping of common account names
+                account_mapping_text = ""
+                if asset_accounts:
+                    account_mapping_text = "Available Zoho accounts (use lowercase with underscores):\n"
+                    for acc in asset_accounts:
+                        account_name = acc['account_name'].lower().replace(' ', '_')
+                        account_mapping_text += f"- {acc['account_name']} (use: {account_name})\n"
+                
+                # Step 5: Define system content with Zoho accounts
+                system_content = f"""{instructions}
+
+{account_mapping_text}
+Extract the following information from the message in JSON format:
+{{
+    "amount": number (positive value without currency symbols),
+    "from_account": string (source account in lowercase with underscores),
+    "to_account": string (destination account in lowercase with underscores),
+    "reference": string (optional brief reason for transfer)
+}}
+
+Return ONLY valid JSON format. Do not add any explanations or extra text.
+"""
                 parsed_data = self.grok_client.parse_message_with_system_content(message, system_content)
-                # Step 4: Process fund transfer
+                # Step 6: Process fund transfer
                 result = self.fund_transfer_handler.process(parsed_data, sender_name)
 
             elif transaction_type == "expense":
-                # Step 2: Fetch expense accounts
+                # Step 7: Fetch expense accounts
                 try:
                     expense_accounts = self.token_manager.get_expense_accounts()
-                    expense_account_list = "\n".join([f"- {acc['account_name']}, ID: {acc['account_id']}" for acc in expense_accounts])
+                    expense_account_list = "\n".join([
+                        f"- {acc['account_name']}, ID: {acc['account_id']}" 
+                        for acc in expense_accounts
+                    ])
                 except Exception as e:
                     logger.warning(f"Failed to fetch expense accounts: {str(e)}")
                     expense_account_list = "Unable to fetch expense accounts. Please specify the expense account name clearly."
                 
-                # Step 3: Load expense instructions
+                # Step 8: Load expense instructions
                 with open("instructions/Expenses.txt", "r") as f:
                     instructions = f.read()
-                # Step 4: Prepare account lists for the prompt
-                payment_accounts = [
-                    "MC Cash (variations: mc_cash, microconcept cash, mc cash account)",
-                    "MC Bank (variations: mc_bank, microconcept bank, mc bank account)",
-                    "MC Mpesa (variations: mc_mpesa, microconcept mpesa, mc mpesa account)",
-                    "BE Cash (variations: be_cash, bellissima cash, bellissima cash account, belli cash)",
-                    "BE Bank (variations: be_bank, bellissima bank, bellissima bank account, belli bank)",
-                    "BE Mpesa (variations: be_mpesa, bellissima mpesa, bellissima mpesa account, belli mpesa)",
-                    "MCAsie Cash (variations: mcasie_cash, mcasie, rac, asie, mcasie cash account)",
-                    "Buying Petty Cash (variations: buying_petty_cash, petty cash, buying petty)"
-                ]
-                payment_account_list = "\n".join([f"- {acc}" for acc in payment_accounts])
                 
+                # Step 9: Create system content with fetched accounts
                 system_content = f"""{instructions}
 
-Here is the list of available expense accounts:
+Here are the available expense accounts:
 {expense_account_list}
 
-Here are the available payment accounts:
-{payment_account_list}
+Here are the available payment (asset) accounts:
+{asset_account_list}
 
 Parse the message and extract the following information in JSON format:
 {{
     "amount": number (positive value without currency symbols),
     "account_id": string (ID from expense accounts list),
     "account_name": string (name from expense accounts list),
-    "paid_through": string (payment account in lowercase with underscores),
+    "paid_through": string (payment account name or ID from asset accounts list),
     "date": string (YYYY-MM-DD format, default to today if unspecified),
     "reference": string (brief description, max 10 words),
     "notes": string (detailed description if provided)
@@ -385,23 +419,20 @@ Parse the message and extract the following information in JSON format:
 
 Payment account selection rules:
 1. If explicitly mentioned, use the specified payment account
-2. If not specified:
-   - For MC-related expenses → use mc_cash
-   - For BE-related expenses → use be_cash
-   - For MCAsie/RAC expenses → use mcasie_cash
-   - For general expenses → use buying_petty_cash
+2. If not specified, select the most appropriate asset account based on the context of the expense
+3. Match the payment account to a valid Zoho asset account from the list
 
 Return ONLY valid JSON with no additional text.
 """
                 
                 parsed_data = self.grok_client.parse_message_with_system_content(message, system_content)
-                # Step 5: Process expense
+                # Step 10: Process expense
                 result = self.expense_handler.process(parsed_data, sender_name)
 
             else:
                 return "I couldn't determine the type of transaction. Please specify if it's a fund transfer or an expense."
 
-            # Step 6: Handle the result
+            # Step 11: Handle the result
             if result and isinstance(result, dict) and "status" in result:
                 if result["status"] == "success":
                     return result["text"]
