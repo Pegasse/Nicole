@@ -128,6 +128,12 @@ class FundTransferHandler:
                     logger.info(f"Converting destination to Cash In Transit for MCAsie transfer")
                     break
         
+        # Create a unique reference number for the transaction
+        reference_number = f"TRANSFER-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        
+        # Get current date in YYYY-MM-DD format
+        current_date = datetime.now().strftime("%Y-%m-%d")
+        
         # Get display names for accounts
         from_display_name = from_account.get('account_name', data['from_account'])
         to_display_name = to_account.get('account_name', data['to_account'])
@@ -135,68 +141,63 @@ class FundTransferHandler:
         purpose = data.get("reference", "Funds Transfer")
         description = f"Transfer from {from_display_name} to {to_display_name}" 
         if purpose:
-            description += f" for {purpose}"
-        
-        # Ensure the token is valid
-        if not self.token_manager.ensure_valid_token():
-            return {"status": "error", "text": "Failed to refresh Zoho API token"}
-        
-        # Common transaction parameters
-        current_date = date.today().isoformat()
-        reference_number = f"TRANSFER-{date.today().strftime('%Y%m%d')}-{int(datetime.now().timestamp()) % 10000}"
-        
-        # Create the API request headers
+            description += f" - {purpose}"
+            
+        # Set up the API endpoint and headers
+        url = f"{Config.ZOHO_API_URL}/banktransactions?organization_id={Config.ZOHO_ORG_ID}"
         headers = {
             "Authorization": f"Zoho-oauthtoken {self.token_manager.get_token()}",
             "Content-Type": "application/json"
         }
         
-        # Create the journal entry
-        url = f"{Config.ZOHO_API_URL}/journals?organization_id={Config.ZOHO_ORG_ID}"
+        # Format the amount as a number (not a string)
+        formatted_amount = float(amount)
         
-        # Prepare the request payload
+        # Prepare the bank transfer transaction payload
         payload = {
-            "journal_date": current_date,
+            "date": current_date,
+            "account_id": from_account["account_id"],
+            "transaction_type": "transfer",
             "reference_number": reference_number,
-            "notes": description,
-            "line_items": [
-                {
-                    "account_id": to_account["account_id"],
-                    "debit_amount": amount,
-                    "credit_amount": 0
-                },
-                {
-                    "account_id": from_account["account_id"],
-                    "debit_amount": 0,
-                    "credit_amount": amount
-                }
-            ]
+            "amount": formatted_amount,
+            "to_account_id": to_account["account_id"],
+            "description": description
         }
+        
+        # Log the payload for debugging
+        logger.info(f"Sending bank transfer payload to Zoho: {json.dumps(payload)}")
         
         # Make the API request
         response = requests.post(url, headers=headers, json=payload)
         
+        # Log the complete response for debugging
+        logger.info(f"Zoho API response: Status {response.status_code}, Response: {response.text}")
+        
         # Check if the request was successful
-        if response.status_code == 201:
+        if response.status_code in [200, 201]:
             result = response.json()
-            journal_id = result.get("journal", {}).get("journal_id", "Unknown")
-            response_text = f"@{sender_name}: Successfully transferred ${amount} from {from_display_name} to {to_display_name}. Journal ID: {journal_id}"
-            
-            # Log the success
-            logger.info(response_text)
-            
+            logger.info(f"Transaction created successfully: {result}")
+            # Return success response
             return {
-                "status": "success", 
-                "text": response_text,
-                "amount": amount,
-                "from_account": from_display_name,
-                "to_account": to_display_name
+                "status": "success",
+                "text": f"✅ Transfer completed successfully!\nAmount: {amount}\nFrom: {from_display_name}\nTo: {to_display_name}",
+                "data": result
             }
         else:
-            # Log and return the error
-            error_msg = f"API Error ({response.status_code}): {response.text}"
-            logger.error(error_msg)
-            return {"status": "error", "text": error_msg}
+            # Handle error
+            try:
+                error_data = response.json()
+                error_msg = error_data.get("message", "Unknown error")
+                logger.error(f"API Error ({response.status_code}): {response.text}")
+                return {
+                    "status": "error",
+                    "text": f"❌ Transfer failed: {error_msg}",
+                    "data": error_data
+                }
+            except Exception as e:
+                error_msg = f"Error processing response: {str(e)}"
+                logger.error(error_msg)
+                return {"status": "error", "text": error_msg}
                 
     def _get_account_alternatives(self):
         """Get a list of available account names as a formatted string"""
