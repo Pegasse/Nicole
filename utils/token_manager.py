@@ -229,10 +229,13 @@ class ZohoTokenManager:
         # Fetch bank accounts
         bank_accounts = self.get_accounts_by_type("bank")
         
-        # Combine cash and bank accounts
-        accounts = cash_accounts + bank_accounts
+        # Fetch other_asset accounts
+        other_asset_accounts = self.get_accounts_by_type("other_asset")
         
-        logger.info(f"Combined {len(cash_accounts)} cash and {len(bank_accounts)} bank accounts, total: {len(accounts)}")
+        # Combine all asset accounts
+        accounts = cash_accounts + bank_accounts + other_asset_accounts
+        
+        logger.info(f"Combined {len(cash_accounts)} cash, {len(bank_accounts)} bank, and {len(other_asset_accounts)} other asset accounts, total: {len(accounts)}")
         
         if accounts:
             # Log some account names for debugging

@@ -47,10 +47,18 @@ class FundTransferHandler:
                     name_lower = acc["account_name"].lower()
                     self.account_by_name[name_lower] = acc
                     
+                    # Ensure account_type is preserved
+                    if "account_type" not in acc and "account_type_formatted" in acc:
+                        acc["account_type"] = acc["account_type_formatted"].lower()
+                    
                     # Log account names for debugging
-                    logger.debug(f"Added account to lookup: {acc['account_name']} (ID: {acc['account_id']})")
+                    logger.debug(f"Added account to lookup: {acc['account_name']} (ID: {acc['account_id']}, Type: {acc.get('account_type', 'unknown')})")
             
             logger.info(f"Created lookups with {len(self.account_by_id)} ID entries and {len(self.account_by_name)} name entries")
+            
+            # Log account types for debugging
+            account_types = set(acc.get('account_type', 'unknown') for acc in self.cash_bank_accounts)
+            logger.info(f"Account types available: {account_types}")
         except Exception as e:
             logger.error(f"Error refreshing accounts: {str(e)}")
             # Don't clear accounts on error to avoid losing existing data
@@ -251,7 +259,7 @@ class FundTransferHandler:
                 "text": "No transit account found. Please create a 'Cash In Transit' account in Zoho Books.",
                 "data": data
             }
-                
+        
         # Create a unique reference number for the transactions
         timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
         reference_number_1 = f"TRANSFER1-{timestamp}"
