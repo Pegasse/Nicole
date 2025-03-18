@@ -109,7 +109,7 @@ class GrokAPIClient:
             """
             
             # Create the request payload according to X.ai documentation
-            payload = {
+        payload = {
                 "model": "grok-2",
                 "messages": [
                     {"role": "system", "content": system_content},
@@ -200,7 +200,7 @@ class GrokAPIClient:
                             "error": "Failed to parse response",
                             "original_response": parsed_data_text
                         }
-            else:
+        else:
                 # If no JSON brackets found, try the whole string
                 try:
                     parsed_data = json.loads(parsed_data_text)
@@ -251,7 +251,6 @@ class GrokAPIClient:
         """Parse a message using the X.ai API with custom system content."""
         if not self.api_key:
             raise Exception("X.ai API key not configured")
-        
         try:
             headers = {
                 "Authorization": f"Bearer {self.api_key}",
@@ -259,10 +258,10 @@ class GrokAPIClient:
                 "User-Agent": "NicoleBot/1.0"
             }
     
-            payload = {
+    payload = {
                 "model": "grok-2",
-                "messages": [
-                    {"role": "system", "content": system_content},
+        "messages": [
+            {"role": "system", "content": system_content},
                     {"role": "user", "content": message}
                 ],
                 "temperature": 0.1,
@@ -277,19 +276,16 @@ class GrokAPIClient:
             # Extract JSON from the response
             json_start = parsed_data_text.find("{")
             json_end = parsed_data_text.rfind("}")
-            
             if json_start != -1 and json_end != -1 and json_end > json_start:
                 json_str = parsed_data_text[json_start:json_end+1]
                 try:
-                    parsed_data = json.loads(json_str)
-                except json.JSONDecodeError:
+                        parsed_data = json.loads(json_str)
+                    except json.JSONDecodeError:
                     parsed_data = json.loads(parsed_data_text)
-            else:
+                else:
                 parsed_data = json.loads(parsed_data_text)
-                
             return parsed_data
-            
-        except Exception as e:
+    except Exception as e:
             logger.error(f"Error parsing message: {str(e)}")
             raise
 
@@ -358,7 +354,7 @@ class Brain:
                     f"- {acc['account_name']}, ID: {acc['account_id']} ({acc.get('account_type', 'account')})" 
                     for acc in cash_bank_accounts
                 ])
-            except Exception as e:
+        except Exception as e:
                 logger.warning(f"Failed to fetch cash and bank accounts: {str(e)}")
                 cash_bank_account_list = "Unable to fetch cash and bank accounts from Zoho Books. Please specify account names clearly."
                 cash_bank_accounts = []
@@ -465,7 +461,7 @@ Return ONLY valid JSON with no additional text.
                     return result["text"]
                 else:
                     return f"❌ Transaction failed: {result.get('text', 'Unknown error')}"
-            else:
+        else:
                 logger.warning(f"Unexpected result format: {result}")
                 return "✅ Transaction request processed."
         except Exception as e:

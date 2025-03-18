@@ -157,7 +157,7 @@ class FundTransferHandler:
         payload = {
             "date": current_date,
             "account_id": from_account["account_id"],
-            "transaction_type": "transfer",
+            "transaction_type": "transfer_fund",
             "reference_number": reference_number,
             "amount": formatted_amount,
             "to_account_id": to_account["account_id"],
