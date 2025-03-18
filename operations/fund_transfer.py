@@ -226,30 +226,55 @@ class FundTransferHandler:
                 "text": f"Cannot transfer to the same account: {from_account['account_name']}",
                 "data": data
             }
-            
-        # Handle special case for MCAsie/Cash In Transit
-        if to_account and to_account.get('account_name', '').lower() == 'mcasie cash':
-            # Look for Cash In Transit account
-            for name, account in self.account_by_name.items():
-                if 'cash in transit' in name:
-                    to_account = account
-                    logger.info(f"Converting destination to Cash In Transit for MCAsie transfer")
-                    break
         
-        # Create a unique reference number for the transaction
-        reference_number = f"TRANSFER-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        # Find the transit account
+        transit_account = None
+        for acc in self.cash_bank_accounts:
+            if 'transit' in acc.get('account_name', '').lower() or 'in transit' in acc.get('account_name', '').lower():
+                transit_account = acc
+                logger.info(f"Found transit account: {transit_account['account_name']}")
+                break
+                
+        # If no transit account found, look for Cash In Transit specifically
+        if not transit_account:
+            for name, account in self.account_by_name.items():
+                if 'cash in transit' in name.lower():
+                    transit_account = account
+                    logger.info(f"Found Cash In Transit account: {transit_account['account_name']}")
+                    break
+                    
+        # If still no transit account, create an error
+        if not transit_account:
+            logger.error("No transit account found for double transfer")
+            return {
+                "status": "error",
+                "text": "No transit account found. Please create a 'Cash In Transit' account in Zoho Books.",
+                "data": data
+            }
+                
+        # Create a unique reference number for the transactions
+        timestamp = datetime.now().strftime('%Y%m%d%H%M%S')
+        reference_number_1 = f"TRANSFER1-{timestamp}"
+        reference_number_2 = f"TRANSFER2-{timestamp}"
         
         # Get current date in YYYY-MM-DD format
         current_date = datetime.now().strftime("%Y-%m-%d")
         
         # Get display names for accounts
         from_display_name = from_account.get('account_name', data['from_account'])
+        transit_display_name = transit_account.get('account_name', 'Transit Account')
         to_display_name = to_account.get('account_name', data['to_account'])
         
         purpose = data.get("reference", "Funds Transfer")
-        description = f"Transfer from {from_display_name} to {to_display_name}" 
+        description_1 = f"Transfer from {from_display_name} to {transit_display_name} (Step 1 of 2)"
+        description_2 = f"Transfer from {transit_display_name} to {to_display_name} (Step 2 of 2)"
         if purpose:
-            description += f" - {purpose}"
+            description_1 += f" - {purpose}"
+            description_2 += f" - {purpose}"
+            
+        # Ensure token is valid
+        if not self.token_manager.ensure_valid_token():
+            return {"status": "error", "text": "Failed to refresh Zoho API token"}
             
         # Set up the API endpoint and headers
         url = f"{Config.ZOHO_API_URL}/banktransactions?organization_id={Config.ZOHO_ORG_ID}"
@@ -261,53 +286,110 @@ class FundTransferHandler:
         # Format the amount as a string with 2 decimal places
         formatted_amount = "{:.2f}".format(amount)
         
-        # Prepare the bank transfer transaction payload
-        payload = {
+        # -------------------- FIRST TRANSFER: Source to Transit --------------------
+        # Prepare the first bank transfer transaction payload
+        payload_1 = {
             "date": current_date,
             "account_id": from_account["account_id"],
             "transaction_type": "transfer_fund",
-            "reference_number": reference_number,
+            "reference_number": reference_number_1,
             "amount": formatted_amount,
-            "to_account_id": to_account["account_id"],
-            "description": description
+            "to_account_id": transit_account["account_id"],
+            "description": description_1
         }
         
         # Log the payload for debugging
-        logger.info(f"Sending bank transfer payload to Zoho: {json.dumps(payload)}")
+        logger.info(f"Sending first bank transfer payload to Zoho: {json.dumps(payload_1)}")
         
-        # Make the API request
-        response = requests.post(url, headers=headers, json=payload)
+        # Make the first API request
+        response_1 = requests.post(url, headers=headers, json=payload_1)
         
         # Log the complete response for debugging
-        logger.info(f"Zoho API response: Status {response.status_code}, Response: {response.text}")
+        logger.info(f"Zoho API response for first transfer: Status {response_1.status_code}, Response: {response_1.text}")
         
-        # Check if the request was successful
-        if response.status_code in [200, 201]:
-            result = response.json()
-            logger.info(f"Transaction created successfully: {result}")
-            # Return success response
-            return {
-                "status": "success",
-                "text": f"✅ Transfer completed successfully!\nAmount: {amount}\nFrom: {from_display_name}\nTo: {to_display_name}",
-                "data": result
-            }
-        else:
+        # Check if the first request was successful
+        if response_1.status_code not in [200, 201]:
             # Handle error
             try:
-                error_data = response.json()
+                error_data = response_1.json()
                 error_msg = error_data.get("message", "Unknown error")
-                error_code = error_data.get("code", 0)
-                
-                logger.error(f"API Error ({response.status_code}): {response.text}")
+                logger.error(f"First transfer failed: {error_msg}")
                 return {
                     "status": "error",
-                    "text": f"❌ Transfer failed: {error_msg}",
+                    "text": f"❌ First transfer failed: {error_msg}",
                     "data": error_data
                 }
             except Exception as e:
                 error_msg = f"Error processing response: {str(e)}"
                 logger.error(error_msg)
                 return {"status": "error", "text": error_msg}
+                
+        # -------------------- SECOND TRANSFER: Transit to Destination --------------------
+        # Prepare the second bank transfer transaction payload
+        payload_2 = {
+            "date": current_date,
+            "account_id": transit_account["account_id"],
+            "transaction_type": "transfer_fund",
+            "reference_number": reference_number_2,
+            "amount": formatted_amount,
+            "to_account_id": to_account["account_id"],
+            "description": description_2
+        }
+        
+        # Log the payload for debugging
+        logger.info(f"Sending second bank transfer payload to Zoho: {json.dumps(payload_2)}")
+        
+        # Make the second API request
+        response_2 = requests.post(url, headers=headers, json=payload_2)
+        
+        # Log the complete response for debugging
+        logger.info(f"Zoho API response for second transfer: Status {response_2.status_code}, Response: {response_2.text}")
+        
+        # Check if the second request was successful
+        if response_2.status_code not in [200, 201]:
+            # The first transfer succeeded but second failed, we should handle this case
+            logger.error("First transfer succeeded but second failed")
+            
+            try:
+                error_data = response_2.json()
+                error_msg = error_data.get("message", "Unknown error")
+                logger.error(f"Second transfer failed: {error_msg}")
+                return {
+                    "status": "error",
+                    "text": f"❌ Warning: First transfer to transit account succeeded, but second transfer failed: {error_msg}. Manual intervention required.",
+                    "data": error_data
+                }
+            except Exception as e:
+                error_msg = f"Error processing response: {str(e)}"
+                logger.error(error_msg)
+                return {"status": "error", "text": f"❌ Warning: First transfer succeeded, but second transfer failed. Manual intervention required. Error: {error_msg}"}
+        
+        # Both transfers succeeded
+        try:
+            result_1 = response_1.json()
+            result_2 = response_2.json()
+            
+            # Return success response
+            logger.info(f"Double transfer completed successfully")
+            return {
+                "status": "success",
+                "text": f"✅ Transfer completed successfully!\nAmount: {amount}\nFrom: {from_display_name}\nVia: {transit_display_name}\nTo: {to_display_name}",
+                "data": {
+                    "first_transfer": result_1,
+                    "second_transfer": result_2
+                }
+            }
+        except Exception as e:
+            logger.error(f"Error processing successful transfers: {str(e)}")
+            # Both transfers likely succeeded but we couldn't parse the responses
+            return {
+                "status": "success",
+                "text": f"✅ Transfer appears successful but couldn't process response. Amount: {amount} from {from_display_name} to {to_display_name} via {transit_display_name}",
+                "data": {
+                    "first_response": response_1.text,
+                    "second_response": response_2.text
+                }
+            }
                 
     def _get_account_alternatives(self):
         """Get a list of available account names as a formatted string"""
