@@ -1,4 +1,5 @@
 import requests
+import json
 from datetime import datetime, timedelta
 from config import Config, logger
 
@@ -217,51 +218,65 @@ class ZohoTokenManager:
         """
         logger.info(f"Fetching cash and bank accounts from Zoho")
         
+        # Ensure we have a valid token
+        if not self.ensure_valid_token():
+            logger.error("Failed to get valid token for asset accounts")
+            return []
+        
         # Fetch cash accounts
-        cash_url = f"{Config.ZOHO_API_URL}/chartofaccounts?organization_id={Config.ZOHO_ORG_ID}&account_type=cash"
-        headers = {
-            "Authorization": f"Zoho-oauthtoken {self.get_token()}"
-        }
-        cash_response = requests.get(cash_url, headers=headers)
+        cash_accounts = self.get_accounts_by_type("cash")
         
         # Fetch bank accounts
-        bank_url = f"{Config.ZOHO_API_URL}/chartofaccounts?organization_id={Config.ZOHO_ORG_ID}&account_type=bank"
-        bank_response = requests.get(bank_url, headers=headers)
-        
-        cash_accounts = []
-        bank_accounts = []
-        
-        if cash_response.status_code == 200:
-            cash_data = cash_response.json()
-            if "chartofaccounts" in cash_data:
-                cash_accounts = cash_data["chartofaccounts"]
-                logger.info(f"Successfully fetched {len(cash_accounts)} cash accounts")
-            else:
-                logger.warning(f"No cash accounts found in response: {cash_data}")
-        else:
-            logger.error(f"Failed to fetch cash accounts: {cash_response.status_code} - {cash_response.text}")
-        
-        if bank_response.status_code == 200:
-            bank_data = bank_response.json()
-            if "chartofaccounts" in bank_data:
-                bank_accounts = bank_data["chartofaccounts"]
-                logger.info(f"Successfully fetched {len(bank_accounts)} bank accounts")
-            else:
-                logger.warning(f"No bank accounts found in response: {bank_data}")
-        else:
-            logger.error(f"Failed to fetch bank accounts: {bank_response.status_code} - {bank_response.text}")
+        bank_accounts = self.get_accounts_by_type("bank")
         
         # Combine cash and bank accounts
         accounts = cash_accounts + bank_accounts
         
-        # Add account_type field to each account for reference
-        for acc in accounts:
-            if acc in cash_accounts:
-                acc["account_type"] = "cash"
-            else:
-                acc["account_type"] = "bank"
+        logger.info(f"Combined {len(cash_accounts)} cash and {len(bank_accounts)} bank accounts, total: {len(accounts)}")
         
-        if not accounts:
+        if accounts:
+            # Log some account names for debugging
+            account_names = [acc.get('account_name', 'unnamed') for acc in accounts[:5]]
+            logger.info(f"Sample account names: {account_names}")
+        else:
             logger.warning("No cash or bank accounts found from API")
             
-        return accounts 
+        return accounts
+
+    def get_accounts_by_type(self, account_type):
+        """Fetch accounts of a specific type from Zoho Books API with detailed error checking."""
+        if not self.ensure_valid_token():
+            raise Exception(f"Failed to get valid token for fetching {account_type} accounts")
+            
+        url = f"{Config.ZOHO_API_URL}/chartofaccounts?organization_id={Config.ZOHO_ORG_ID}&account_type={account_type}"
+        headers = {
+            "Authorization": f"Zoho-oauthtoken {self.get_token()}",
+            "Content-Type": "application/json"
+        }
+        
+        logger.info(f"Fetching {account_type} accounts from Zoho Books API: {url}")
+        
+        try:
+            response = requests.get(url, headers=headers)
+            logger.info(f"{account_type} accounts API response: Status {response.status_code}")
+            
+            if response.status_code == 200:
+                data = response.json()
+                if "chartofaccounts" in data:
+                    accounts = data["chartofaccounts"]
+                    logger.info(f"Successfully fetched {len(accounts)} {account_type} accounts")
+                    
+                    # Add account_type field to each account for reference
+                    for acc in accounts:
+                        acc["account_type"] = account_type
+                        
+                    return accounts
+                else:
+                    logger.warning(f"No {account_type} accounts found in response: {data}")
+                    return []
+            else:
+                logger.error(f"Failed to fetch {account_type} accounts: {response.status_code} - {response.text}")
+                return []
+        except Exception as e:
+            logger.error(f"Error fetching {account_type} accounts: {str(e)}")
+            return [] 

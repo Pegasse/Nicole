@@ -55,7 +55,9 @@ class ExpenseHandler:
                 if account_id:
                     self.expense_account_map[account_id] = account
                     if account_name:
-                        self.expense_account_map[account_name.lower()] = account
+                        name_lower = account_name.lower()
+                        self.expense_account_map[name_lower] = account
+                        logger.debug(f"Added expense account to lookup: {account_name} (ID: {account_id})")
             
             # Map asset accounts by ID and name
             for account in self.asset_accounts:
@@ -64,15 +66,23 @@ class ExpenseHandler:
                 if account_id:
                     self.asset_account_map[account_id] = account
                     if account_name:
-                        self.asset_account_map[account_name.lower()] = account
+                        name_lower = account_name.lower()
+                        self.asset_account_map[name_lower] = account
+                        logger.debug(f"Added asset account to lookup: {account_name} (ID: {account_id})")
+            
+            # Log some sample account names for debugging
+            if self.asset_accounts:
+                asset_names = [acc.get('account_name', 'unnamed') for acc in self.asset_accounts[:3]]
+                logger.info(f"Sample asset account names: {asset_names}")
+                
+            if self.expense_accounts:
+                expense_names = [acc.get('account_name', 'unnamed') for acc in self.expense_accounts[:3]]
+                logger.info(f"Sample expense account names: {expense_names}")
                         
             logger.info(f"Mapped {len(self.asset_account_map)} asset accounts and {len(self.expense_account_map)} expense accounts")
         except Exception as e:
             logger.error(f"Error refreshing accounts: {str(e)}")
-            self.asset_accounts = []
-            self.expense_accounts = []
-            self.asset_account_map = {}
-            self.expense_account_map = {}
+            # Don't clear accounts on error to avoid losing existing data if partial fetch was successful
 
     def process(self, parsed_data, sender_name):
         """Process the parsed expense data and create an expense in Zoho Books."""

@@ -13,10 +13,9 @@ class FundTransferHandler:
     def __init__(self, token_manager):
         self.token_manager = token_manager
         # Get all cash and bank accounts
-        self.cash_bank_accounts = self.token_manager.get_asset_accounts()
-        # Create dictionaries for quick lookups
-        self.account_by_id = {acc["account_id"]: acc for acc in self.cash_bank_accounts} if self.cash_bank_accounts else {}
-        self.account_by_name = {acc["account_name"].lower(): acc for acc in self.cash_bank_accounts} if self.cash_bank_accounts else {}
+        self.cash_bank_accounts = []
+        self.refresh_accounts()  # Call refresh_accounts instead of directly fetching in init
+        
         logger.info(f"Fund Transfer Handler initialized with {len(self.cash_bank_accounts)} cash and bank accounts")
         
         # Dictionary of common account names and their variations for more flexible matching
@@ -31,45 +30,110 @@ class FundTransferHandler:
             "buying petty cash": ["buying petty cash", "petty cash", "buying cash", "petty"]
         }
         
+    def refresh_accounts(self):
+        """Refresh account information from Zoho Books"""
+        try:
+            # Get asset accounts
+            self.cash_bank_accounts = self.token_manager.get_asset_accounts()
+            logger.info(f"Refreshed {len(self.cash_bank_accounts)} cash and bank accounts from Zoho Books")
+            
+            # Create dictionaries for quick lookups
+            self.account_by_id = {acc["account_id"]: acc for acc in self.cash_bank_accounts} if self.cash_bank_accounts else {}
+            self.account_by_name = {}
+            
+            # Create case-insensitive lookup by name
+            for acc in self.cash_bank_accounts:
+                if "account_name" in acc and acc["account_name"]:
+                    name_lower = acc["account_name"].lower()
+                    self.account_by_name[name_lower] = acc
+                    
+                    # Log account names for debugging
+                    logger.debug(f"Added account to lookup: {acc['account_name']} (ID: {acc['account_id']})")
+            
+            logger.info(f"Created lookups with {len(self.account_by_id)} ID entries and {len(self.account_by_name)} name entries")
+        except Exception as e:
+            logger.error(f"Error refreshing accounts: {str(e)}")
+            # Don't clear accounts on error to avoid losing existing data
+        
     def _find_account(self, account_name_or_id):
         """Find an account by name or ID"""
         if not account_name_or_id:
             return None
         
+        account_name_lower = account_name_or_id.lower() if account_name_or_id else ""
+        logger.info(f"Searching for account: '{account_name_or_id}'")
+        
         # Check if it's an ID
         if account_name_or_id in self.account_by_id:
-            account = self.account_by_id[account_name_or_id]
-            return account
-        
+            logger.info(f"Found account by exact ID match: {account_name_or_id}")
+            return self.account_by_id[account_name_or_id]
+            
         # Check if exact lowercase name match
-        account_name_lower = account_name_or_id.lower() if account_name_or_id else ""
         if account_name_lower in self.account_by_name:
-            account = self.account_by_name[account_name_lower]
-            return account
+            logger.info(f"Found account by exact lowercase name match: {account_name_lower}")
+            return self.account_by_name[account_name_lower]
+        
+        # Log account name map for debugging
+        logger.debug(f"Account name map keys: {list(self.account_by_name.keys())}")
         
         # Try common name variations from our dictionary
+        matched_common_name = None
         for common_name, variations in self.common_account_names.items():
-            if account_name_lower in variations:
+            if account_name_lower in variations or common_name in account_name_lower:
                 logger.info(f"Found match through common name variations: {account_name_or_id} → {common_name}")
-                # Now look for this common_name in our account map
-                for name, account in self.account_by_name.items():
-                    if common_name in name:
-                        logger.info(f"Matched common name {common_name} to account {name}")
-                        return account
+                matched_common_name = common_name
+                break
+        
+        if matched_common_name:
+            # Look for this common_name in our Zoho accounts
+            for name_key, account in self.account_by_name.items():
+                # Try different matching strategies
+                if matched_common_name in name_key:
+                    logger.info(f"Matched common name {matched_common_name} to account {name_key}")
+                    return account
+                    
+                # Check for specific keywords like "cash" or "bank"
+                if ("cash" in matched_common_name and "cash" in name_key) or ("bank" in matched_common_name and "bank" in name_key):
+                    logger.info(f"Matched by type (cash/bank): {matched_common_name} to account {name_key}")
+                    return account
         
         # Try partial matching on names
-        for name, account in self.account_by_name.items():
-            if account_name_lower in name:
-                logger.info(f"Found partial match for account: {account_name_or_id} → {name}")
-                return account
-            
-            # Also check if name is in the account_name_or_id (reverse match)
-            if name in account_name_lower:
-                logger.info(f"Found reverse partial match for account: {name} in {account_name_or_id}")
-                return account
+        best_match = None
+        best_match_score = 0
+        
+        for name_key, account in self.account_by_name.items():
+            # If account name contains the search term
+            if account_name_lower in name_key:
+                logger.info(f"Found partial match (search in key): {account_name_or_id} → {name_key}")
+                if len(account_name_lower) > best_match_score:
+                    best_match = account
+                    best_match_score = len(account_name_lower)
+                    
+            # If the search term contains the account name
+            elif name_key in account_name_lower:
+                logger.info(f"Found reverse partial match (key in search): {name_key} in {account_name_or_id}")
+                if len(name_key) > best_match_score:
+                    best_match = account
+                    best_match_score = len(name_key)
+                    
+            # Try matching on key words (cash, bank, etc.)
+            if "cash" in account_name_lower and "cash" in name_key:
+                logger.info(f"Keyword match on 'cash': {account_name_or_id} → {name_key}")
+                best_match = account
+                best_match_score = max(best_match_score, 5)  # Assign a reasonable score
+                
+            if "bank" in account_name_lower and "bank" in name_key:
+                logger.info(f"Keyword match on 'bank': {account_name_or_id} → {name_key}")
+                best_match = account
+                best_match_score = max(best_match_score, 5)  # Assign a reasonable score
+        
+        if best_match:
+            logger.info(f"Returning best partial match with score {best_match_score}")
+            return best_match
         
         # No matches found
         logger.warning(f"No account match found for: {account_name_or_id}")
+        logger.warning(f"Available account names: {list(self.account_by_name.keys())}")
         return None
     
     def process(self, data, sender_name=""):
@@ -103,7 +167,25 @@ class FundTransferHandler:
                 "text": f"Invalid amount format: {data['amount']}",
                 "data": data
             }
+        
+        # Debug information about available accounts before matching
+        logger.info(f"Number of cash/bank accounts available: {len(self.cash_bank_accounts)}")
+        logger.info(f"Number of accounts in account_by_name map: {len(self.account_by_name)}")
+        logger.info(f"Available account names: {[acc.get('account_name', 'unnamed') for acc in self.cash_bank_accounts]}")
+        
+        # If accounts list is empty, try refreshing
+        if not self.cash_bank_accounts:
+            logger.warning("No accounts found in handler, attempting to refresh accounts")
+            self.refresh_accounts()
             
+            if not self.cash_bank_accounts:
+                logger.error("Still no accounts after refresh. Zoho Books may not be returning accounts.")
+                return {
+                    "status": "error",
+                    "text": "Could not retrieve any cash or bank accounts from Zoho Books. Please check your configuration and ensure accounts exist.",
+                    "data": data
+                }
+                    
         # Get accounts
         from_account = self._find_account(data["from_account"])
         to_account = self._find_account(data["to_account"])
