@@ -298,7 +298,7 @@ class FundTransferHandler:
         # Prepare the first bank transfer transaction payload
         payload_1 = {
             "date": current_date,
-            "account_id": from_account["account_id"],
+            "from_account_id": from_account["account_id"],
             "transaction_type": "transfer_fund",
             "reference_number": reference_number_1,
             "amount": formatted_amount,
@@ -336,7 +336,7 @@ class FundTransferHandler:
         # Prepare the second bank transfer transaction payload
         payload_2 = {
             "date": current_date,
-            "account_id": transit_account["account_id"],
+            "from_account_id": transit_account["account_id"],
             "transaction_type": "transfer_fund",
             "reference_number": reference_number_2,
             "amount": formatted_amount,
