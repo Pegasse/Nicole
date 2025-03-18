@@ -30,5 +30,8 @@ Instructions:
 First determine the location of the expense. By default, it is BDMS unless there is mention of it belonging to a different company. 
 Then determine the expense account to be used. Prioritize the use of sub-accounts rather than parent accounts. Do use parent accounts if there was no sub-account or the sub-account was unidentifiable. If no account was identified use an account that is for unrecognized, undetermined, or otherwise unknown expenses.
 For the reference number, make it a brief description of the reason for the expense. Keep it short and simple. 10 words or less. 
+
+The default paid through account is expense provisions.
+
 For notes, put a complete description of the expense.
 The default date is today unless otherwise specified. 
