@@ -291,10 +291,25 @@ class GrokAPIClient:
 
     def classify_transaction_type(self, message):
         """Classify the transaction type as fund_transfer, expense, or unknown."""
-        system_content = """You are a helpful assistant that determines the type of accounting transaction from a natural language message. Classify the message as either 'fund_transfer' or 'expense'. If it's neither, classify as 'unknown'. Return the result in JSON format:
+        system_content = """You are a financial transaction classifier that categorizes messages.
+
+Classify the message as one of:
+1. 'fund_transfer' - For moving money between accounts (e.g., "Transfer $500 from BE Bank to Cash", "Move money from MC to BE", "Withdraw $100")
+2. 'expense' - For recording expenses (e.g., "Record $50 for office supplies", "Expense $200 for marketing", "Pay $150 for internet bill")
+3. 'unknown' - If the message doesn't clearly indicate a financial transaction
+
+Examples:
+- "Transfer 5000 from MC bank to BE cash" → fund_transfer
+- "Pay 200 for office supplies from petty cash" → expense
+- "Record expense of 300 for advertising" → expense
+- "Move 1000 from BE to MC" → fund_transfer
+- "What's the weather today?" → unknown
+
+Return ONLY this JSON format:
 {
   "transaction_type": "fund_transfer" or "expense" or "unknown"
-}"""
+}
+"""
         parsed_data = self.parse_message_with_system_content(message, system_content)
         return parsed_data["transaction_type"]
 
@@ -326,14 +341,17 @@ class Brain:
 
             elif transaction_type == "expense":
                 # Step 2: Fetch expense accounts
-                expense_accounts = self.token_manager.get_expense_accounts()
+                try:
+                    expense_accounts = self.token_manager.get_expense_accounts()
+                    expense_account_list = "\n".join([f"- {acc['account_name']}, ID: {acc['account_id']}" for acc in expense_accounts])
+                except Exception as e:
+                    logger.warning(f"Failed to fetch expense accounts: {str(e)}")
+                    expense_account_list = "Unable to fetch expense accounts. Please specify the expense account name clearly."
+                
                 # Step 3: Load expense instructions
                 with open("instructions/Expenses.txt", "r") as f:
                     instructions = f.read()
                 # Step 4: Prepare account lists for the prompt
-                expense_account_list = "\n".join([f"- {acc['account_name']}, ID: {acc['account_id']}" for acc in expense_accounts])
-                
-                # Define available payment accounts
                 payment_accounts = [
                     "MC Cash (variations: mc_cash, microconcept cash, mc cash account)",
                     "MC Bank (variations: mc_bank, microconcept bank, mc bank account)",
@@ -351,26 +369,30 @@ class Brain:
 Here is the list of available expense accounts:
 {expense_account_list}
 
-Here are the available payment accounts (use lowercase with underscores for spaces):
+Here are the available payment accounts:
 {payment_account_list}
 
 Parse the message and extract the following information in JSON format:
 {{
-    "amount": number,
-    "account_id": string (from expense accounts list),
-    "account_name": string (from expense accounts list),
-    "paid_through": string (from payment accounts list, use lowercase with underscores),
-    "date": string (default to today if unspecified),
-    "reference": string (brief, max 10 words),
-    "notes": string (full description)
+    "amount": number (positive value without currency symbols),
+    "account_id": string (ID from expense accounts list),
+    "account_name": string (name from expense accounts list),
+    "paid_through": string (payment account in lowercase with underscores),
+    "date": string (YYYY-MM-DD format, default to today if unspecified),
+    "reference": string (brief description, max 10 words),
+    "notes": string (detailed description if provided)
 }}
 
-Rules for paid_through:
-- If not specified, use the most appropriate cash account based on the expense account
-- For MC-related expenses, prefer MC Cash or MC Bank
-- For BE-related expenses, prefer BE Cash or BE Bank
-- For MCAsie/RAC expenses, prefer MCAsie Cash
-- For general expenses, prefer Buying Petty Cash"""
+Payment account selection rules:
+1. If explicitly mentioned, use the specified payment account
+2. If not specified:
+   - For MC-related expenses → use mc_cash
+   - For BE-related expenses → use be_cash
+   - For MCAsie/RAC expenses → use mcasie_cash
+   - For general expenses → use buying_petty_cash
+
+Return ONLY valid JSON with no additional text.
+"""
                 
                 parsed_data = self.grok_client.parse_message_with_system_content(message, system_content)
                 # Step 5: Process expense
