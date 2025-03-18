@@ -364,23 +364,17 @@ class Brain:
                 with open("instructions/Internal Fund Transfer.txt", "r") as f:
                     instructions = f.read()
                 
-                # Step 4: Create a mapping of common account names
-                account_mapping_text = ""
-                if asset_accounts:
-                    account_mapping_text = "Available Zoho accounts (use lowercase with underscores):\n"
-                    for acc in asset_accounts:
-                        account_name = acc['account_name'].lower().replace(' ', '_')
-                        account_mapping_text += f"- {acc['account_name']} (use: {account_name})\n"
-                
                 # Step 5: Define system content with Zoho accounts
                 system_content = f"""{instructions}
 
-{account_mapping_text}
+Available asset accounts for transfers:
+{asset_account_list}
+
 Extract the following information from the message in JSON format:
 {{
     "amount": number (positive value without currency symbols),
-    "from_account": string (source account in lowercase with underscores),
-    "to_account": string (destination account in lowercase with underscores),
+    "from_account": string (source account name exactly as it appears in the list above),
+    "to_account": string (destination account name exactly as it appears in the list above),
     "reference": string (optional brief reason for transfer)
 }}
 
@@ -419,17 +413,29 @@ Parse the message and extract the following information in JSON format:
 {{
     "amount": number (positive value without currency symbols),
     "account_id": string (ID from expense accounts list),
-    "account_name": string (name from expense accounts list),
-    "paid_through": string (payment account name or ID from asset accounts list),
+    "account_name": string (name from expense accounts list exactly as it appears above),
+    "paid_through": string (payment account name exactly as it appears in the list above),
     "date": string (YYYY-MM-DD format, default to today if unspecified),
     "reference": string (brief description, max 10 words),
     "notes": string (detailed description if provided)
 }}
 
-Payment account selection rules:
-1. If explicitly mentioned, use the specified payment account
-2. If not specified, select the most appropriate asset account based on the context of the expense
-3. Match the payment account to a valid Zoho asset account from the list
+IMPORTANT: 
+- If the payment account is not specified, use an appropriate account from the available asset accounts
+- If the expense appears to be related to a specific company (MC, BE, etc.), use the corresponding cash account
+- Use the exact account names as they appear in the lists above
+
+Example JSON responses:
+For "I bought 20 brooms worth $30 each":
+{{
+  "amount": 600,
+  "account_id": "[ID from expense accounts list]",
+  "account_name": "Office Supplies",
+  "paid_through": "Expense Provisions",
+  "date": "2025-03-18",
+  "reference": "Office supplies purchase",
+  "notes": "Purchased 20 brooms at $30 each for office cleaning"
+}}
 
 Return ONLY valid JSON with no additional text.
 """

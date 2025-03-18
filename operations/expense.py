@@ -20,31 +20,27 @@ class ExpenseHandler:
             self.expense_accounts = self.token_manager.get_expense_accounts()
             logger.info(f"Loaded {len(self.expense_accounts)} expense accounts from Zoho Books")
             
-            # Create maps for easy lookup
+            # Create maps for direct ID and name lookup
             self.expense_account_map = {}
             self.asset_account_map = {}
             
-            # Map expense accounts by ID and normalized name
+            # Map expense accounts by ID and name
             for account in self.expense_accounts:
                 account_id = account.get('account_id')
                 account_name = account.get('account_name', '')
                 if account_id:
                     self.expense_account_map[account_id] = account
-                    # Also map by normalized name (lowercase with underscores)
                     if account_name:
-                        normalized_key = account_name.lower().replace(' ', '_')
-                        self.expense_account_map[normalized_key] = account
+                        self.expense_account_map[account_name.lower()] = account
             
-            # Map asset accounts by ID and normalized name
+            # Map asset accounts by ID and name
             for account in self.asset_accounts:
                 account_id = account.get('account_id')
                 account_name = account.get('account_name', '')
                 if account_id:
                     self.asset_account_map[account_id] = account
-                    # Also map by normalized name (lowercase with underscores)
                     if account_name:
-                        normalized_key = account_name.lower().replace(' ', '_')
-                        self.asset_account_map[normalized_key] = account
+                        self.asset_account_map[account_name.lower()] = account
                         
             logger.info(f"Mapped {len(self.asset_account_map)} asset accounts and {len(self.expense_account_map)} expense accounts")
         except Exception as e:
@@ -62,10 +58,18 @@ class ExpenseHandler:
             account_name = parsed_data.get("account_name", "")
             
             # If account_id not provided but account_name is, try to find the account ID
-            if not account_id and account_name and account_name in self.expense_account_map:
-                account = self.expense_account_map[account_name]
-                account_id = account.get('account_id')
-                logger.info(f"Resolved account ID {account_id} from name {account_name}")
+            if not account_id and account_name:
+                # Try exact match first
+                if account_name in self.expense_account_map:
+                    account = self.expense_account_map[account_name]
+                    account_id = account.get('account_id')
+                # Try lowercase match
+                elif account_name.lower() in self.expense_account_map:
+                    account = self.expense_account_map[account_name.lower()]
+                    account_id = account.get('account_id')
+                
+                if account_id:
+                    logger.info(f"Resolved expense account ID {account_id} from name {account_name}")
             
             # Validate we have an account ID
             if not account_id:
@@ -83,21 +87,42 @@ class ExpenseHandler:
             # Handle paid_through account (payment account)
             paid_through = parsed_data.get("paid_through", "")
             paid_through_account = None
+            paid_through_id = None
             
             # Try to resolve paid_through to an asset account
             if paid_through:
-                # Check if it's an ID or name
+                # Check if it's an ID directly
                 if paid_through in self.asset_account_map:
                     paid_through_account = self.asset_account_map[paid_through]
+                    paid_through_id = paid_through
+                # Try by name (lowercase)
+                elif paid_through.lower() in self.asset_account_map:
+                    paid_through_account = self.asset_account_map[paid_through.lower()]
+                    paid_through_id = paid_through_account.get('account_id')
+                # Try to find it by name
                 else:
-                    # Try normalized variations
-                    normalized_paid_through = paid_through.lower().replace(' ', '_')
-                    if normalized_paid_through in self.asset_account_map:
-                        paid_through_account = self.asset_account_map[normalized_paid_through]
+                    # Look for partial matches
+                    for acc_name, acc in self.asset_account_map.items():
+                        if isinstance(acc_name, str) and paid_through.lower() in acc_name.lower():
+                            paid_through_account = acc
+                            paid_through_id = acc.get('account_id')
+                            logger.info(f"Found partial match for payment account: {paid_through} → {acc_name}")
+                            break
             
-            # If we didn't find the account, log a warning but continue
-            if not paid_through_account and paid_through:
-                logger.warning(f"Could not find payment account: {paid_through}")
+            # If we didn't find a payment account, look for an account named 'Expense Provisions'
+            if not paid_through_account:
+                for acc in self.asset_accounts:
+                    if acc.get('account_name', '').lower() == 'expense provisions':
+                        paid_through_account = acc
+                        paid_through_id = acc.get('account_id')
+                        logger.info(f"Using default 'Expense Provisions' account for payment")
+                        break
+            
+            # If still no payment account, use the first asset account if available
+            if not paid_through_account and self.asset_accounts:
+                paid_through_account = self.asset_accounts[0]
+                paid_through_id = paid_through_account.get('account_id')
+                logger.info(f"Using first available asset account for payment: {paid_through_account.get('account_name')}")
             
             # Ensure token is valid
             if not self.token_manager.ensure_valid_token():
@@ -121,10 +146,8 @@ class ExpenseHandler:
             }
             
             # Add paid_through_account_id if available
-            if paid_through_account:
-                paid_through_id = paid_through_account.get('account_id')
-                if paid_through_id:
-                    payload["paid_through_account_id"] = paid_through_id
+            if paid_through_id:
+                payload["paid_through_account_id"] = paid_through_id
                     
             # Make the API request
             response = requests.post(url, headers=headers, json=payload)
