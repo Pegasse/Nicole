@@ -311,6 +311,15 @@ Examples for expense:
 - "Pay 150 for internet bill from MC Bank"
 - "Record expense of 450 for transport paid through BE Mpesa"
 - "Spend 250 on stationery paid from Buying Petty Cash"
+- "I bought 20 brooms worth 30$ each"
+- "Purchased office furniture for 500$"
+- "Bought inventory items for 1000$"
+- "Spent 75$ on cleaning supplies"
+
+IMPORTANT RULES:
+1. Any message mentioning "bought", "purchased", "paid for", or "spent on" should be classified as 'expense'
+2. Amounts with quantity (e.g., "20 brooms at $30 each") are almost always expenses
+3. When in doubt between 'expense' and 'unknown', classify as 'expense'
 
 Return ONLY this JSON format:
 {
