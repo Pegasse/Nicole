@@ -91,6 +91,11 @@ class FundTransferHandler:
         from_account = self._find_account(data["from_account"])
         to_account = self._find_account(data["to_account"])
         
+        # Debug account matching
+        logger.info(f"Available accounts: {[acc['account_name'] for acc in self.cash_bank_accounts]}")
+        logger.info(f"Looking for from_account: {data['from_account']}, found: {from_account['account_name'] if from_account else 'None'}")
+        logger.info(f"Looking for to_account: {data['to_account']}, found: {to_account['account_name'] if to_account else 'None'}")
+        
         # Check if accounts are found
         if not from_account:
             logger.error(f"Source account not found: {data['from_account']}")
@@ -109,6 +114,14 @@ class FundTransferHandler:
                 "text": f"Destination account '{data['to_account']}' not found. Available accounts: {alternatives}",
                 "data": data
             }
+        
+        # Log account IDs for debugging
+        logger.info(f"Using source account: {from_account['account_name']} with ID: {from_account['account_id']}")
+        logger.info(f"Using destination account: {to_account['account_name']} with ID: {to_account['account_id']}")
+        
+        # Check if account is a fallback
+        if from_account.get('is_fallback') or to_account.get('is_fallback'):
+            logger.warning("Using fallback accounts which may have incorrect IDs")
             
         # Same account check
         if from_account["account_id"] == to_account["account_id"]:
@@ -150,8 +163,8 @@ class FundTransferHandler:
             "Content-Type": "application/json"
         }
         
-        # Format the amount as a number (not a string)
-        formatted_amount = float(amount)
+        # Format the amount as a string with 2 decimal places
+        formatted_amount = "{:.2f}".format(amount)
         
         # Prepare the bank transfer transaction payload
         payload = {
@@ -188,6 +201,8 @@ class FundTransferHandler:
             try:
                 error_data = response.json()
                 error_msg = error_data.get("message", "Unknown error")
+                error_code = error_data.get("code", 0)
+                
                 logger.error(f"API Error ({response.status_code}): {response.text}")
                 return {
                     "status": "error",
