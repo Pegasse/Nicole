@@ -262,52 +262,6 @@ class ZohoTokenManager:
                 acc["account_type"] = "bank"
         
         if not accounts:
-            logger.warning("No cash or bank accounts found from API, creating fallback accounts")
-            accounts = self._create_fallback_accounts()
+            logger.warning("No cash or bank accounts found from API")
             
-        return accounts
-    
-    def _create_fallback_accounts(self):
-        """
-        Create a list of fallback cash and bank accounts based on predefined mappings
-        from configuration to use when the API returns zero accounts.
-        """
-        fallback_accounts = []
-        account_mappings = {
-            "EXPENSE_PROVISIONS_ACCOUNT_ID": "Expense Provisions",
-            "MC_CASH_ACCOUNT_ID": "MC Cash",
-            "BE_CASH_ACCOUNT_ID": "BE Cash",
-            "MC_BANK_ACCOUNT_ID": "MC Bank",
-            "BE_BANK_ACCOUNT_ID": "BE Bank",
-            "MCASIE_CASH_ACCOUNT_ID": "MCAsie Cash",
-            "CASH_IN_TRANSIT_ACCOUNT_ID": "Cash In Transit",
-            "BUYING_PETTY_CASH_ACCOUNT_ID": "Buying Petty Cash"
-        }
-        
-        # Check if we have configured account IDs for fallback
-        fallback_id = 1000000
-        for config_key, account_name in account_mappings.items():
-            account_id = getattr(Config, config_key, None)
-            if account_id:
-                # We have a configured ID
-                account_type = "cash" if "CASH" in config_key else "bank"
-                fallback_accounts.append({
-                    "account_id": account_id,
-                    "account_name": account_name,
-                    "account_type": account_type,
-                    "is_fallback": True
-                })
-                logger.info(f"Added fallback account: {account_name} (ID: {account_id})")
-            else:
-                # No configured ID, create a dummy one with incremental ID
-                account_type = "cash" if "CASH" in config_key else "bank"
-                fallback_accounts.append({
-                    "account_id": str(fallback_id),
-                    "account_name": account_name,
-                    "account_type": account_type,
-                    "is_fallback": True
-                })
-                logger.info(f"Added dummy fallback account: {account_name} (ID: {fallback_id})")
-                fallback_id += 1
-        
-        return fallback_accounts 
+        return accounts 

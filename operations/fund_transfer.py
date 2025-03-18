@@ -15,8 +15,8 @@ class FundTransferHandler:
         # Get all cash and bank accounts
         self.cash_bank_accounts = self.token_manager.get_asset_accounts()
         # Create dictionaries for quick lookups
-        self.account_by_id = {acc["account_id"]: acc for acc in self.cash_bank_accounts}
-        self.account_by_name = {acc["account_name"].lower(): acc for acc in self.cash_bank_accounts}
+        self.account_by_id = {acc["account_id"]: acc for acc in self.cash_bank_accounts} if self.cash_bank_accounts else {}
+        self.account_by_name = {acc["account_name"].lower(): acc for acc in self.cash_bank_accounts} if self.cash_bank_accounts else {}
         logger.info(f"Fund Transfer Handler initialized with {len(self.cash_bank_accounts)} cash and bank accounts")
         
         # Dictionary of common account names and their variations for more flexible matching
@@ -42,17 +42,34 @@ class FundTransferHandler:
             return account
         
         # Check if exact lowercase name match
-        if account_name_or_id.lower() in self.account_by_name:
-            account = self.account_by_name[account_name_or_id.lower()]
+        account_name_lower = account_name_or_id.lower() if account_name_or_id else ""
+        if account_name_lower in self.account_by_name:
+            account = self.account_by_name[account_name_lower]
             return account
+        
+        # Try common name variations from our dictionary
+        for common_name, variations in self.common_account_names.items():
+            if account_name_lower in variations:
+                logger.info(f"Found match through common name variations: {account_name_or_id} → {common_name}")
+                # Now look for this common_name in our account map
+                for name, account in self.account_by_name.items():
+                    if common_name in name:
+                        logger.info(f"Matched common name {common_name} to account {name}")
+                        return account
         
         # Try partial matching on names
         for name, account in self.account_by_name.items():
-            if account_name_or_id.lower() in name:
+            if account_name_lower in name:
                 logger.info(f"Found partial match for account: {account_name_or_id} → {name}")
+                return account
+            
+            # Also check if name is in the account_name_or_id (reverse match)
+            if name in account_name_lower:
+                logger.info(f"Found reverse partial match for account: {name} in {account_name_or_id}")
                 return account
         
         # No matches found
+        logger.warning(f"No account match found for: {account_name_or_id}")
         return None
     
     def process(self, data, sender_name=""):
@@ -119,10 +136,6 @@ class FundTransferHandler:
         logger.info(f"Using source account: {from_account['account_name']} with ID: {from_account['account_id']}")
         logger.info(f"Using destination account: {to_account['account_name']} with ID: {to_account['account_id']}")
         
-        # Check if account is a fallback
-        if from_account.get('is_fallback') or to_account.get('is_fallback'):
-            logger.warning("Using fallback accounts which may have incorrect IDs")
-            
         # Same account check
         if from_account["account_id"] == to_account["account_id"]:
             logger.error(f"Cannot transfer to the same account: {from_account['account_name']}")
@@ -217,7 +230,10 @@ class FundTransferHandler:
     def _get_account_alternatives(self):
         """Get a list of available account names as a formatted string"""
         if not self.cash_bank_accounts:
-            return "No cash or bank accounts available"
+            return "No cash or bank accounts available. Please ensure Zoho Books is properly configured with cash or bank accounts."
             
         account_names = [acc["account_name"] for acc in self.cash_bank_accounts]
+        if not account_names:
+            return "No named accounts available. Please check your Zoho Books configuration."
+            
         return ", ".join(account_names) 

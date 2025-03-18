@@ -14,12 +14,12 @@ class ExpenseHandler:
         # Get cash and bank accounts
         self.cash_bank_accounts = self.token_manager.get_asset_accounts()
         
-        # Create lookup dictionaries
-        self.expense_account_by_id = {acc["account_id"]: acc for acc in self.expense_accounts}
-        self.expense_account_by_name = {acc["account_name"].lower(): acc for acc in self.expense_accounts}
+        # Create lookup dictionaries - ensure we don't crash if accounts are empty
+        self.expense_account_by_id = {acc["account_id"]: acc for acc in self.expense_accounts} if self.expense_accounts else {}
+        self.expense_account_by_name = {acc["account_name"].lower(): acc for acc in self.expense_accounts} if self.expense_accounts else {}
         
-        self.payment_account_by_id = {acc["account_id"]: acc for acc in self.cash_bank_accounts}
-        self.payment_account_by_name = {acc["account_name"].lower(): acc for acc in self.cash_bank_accounts}
+        self.payment_account_by_id = {acc["account_id"]: acc for acc in self.cash_bank_accounts} if self.cash_bank_accounts else {}
+        self.payment_account_by_name = {acc["account_name"].lower(): acc for acc in self.cash_bank_accounts} if self.cash_bank_accounts else {}
         
         # Dictionary of common payment account names and variations for flexible matching
         self.common_payment_accounts = {
@@ -84,22 +84,32 @@ class ExpenseHandler:
             # If account_id not provided but account_name is, try to find the account ID
             if not account_id and account_name:
                 # Try exact match first
-                if account_name in self.expense_account_map:
-                    account = self.expense_account_map[account_name]
-                    account_id = account.get('account_id')
-                # Try lowercase match
-                elif account_name.lower() in self.expense_account_map:
+                if account_name.lower() in self.expense_account_map:
                     account = self.expense_account_map[account_name.lower()]
                     account_id = account.get('account_id')
+                # Try partial match
+                else:
+                    for name, account in self.expense_account_map.items():
+                        if isinstance(name, str) and account_name.lower() in name:
+                            account_id = account.get('account_id')
+                            logger.info(f"Found partial match for expense account: {account_name} → {name}")
+                            break
                 
                 if account_id:
                     logger.info(f"Resolved expense account ID {account_id} from name {account_name}")
             
             # Validate we have an account ID
             if not account_id:
+                alternatives = ", ".join([acc.get('account_name', '') for acc in self.expense_accounts[:10]])
+                error_msg = f"Could not find expense account: {account_name}"
+                if alternatives:
+                    error_msg += f". Available accounts: {alternatives}"
+                else:
+                    error_msg += ". No expense accounts available - please ensure Zoho Books is properly configured."
+                
                 return {
                     "status": "error", 
-                    "text": f"Could not find expense account: {account_name}"
+                    "text": error_msg
                 }
             
             # Extract other expense details
@@ -142,11 +152,25 @@ class ExpenseHandler:
                         logger.info(f"Using default 'Expense Provisions' account for payment")
                         break
             
-            # If still no payment account, use the first asset account if available
+            # If still no payment account and we have asset accounts, use the first one
             if not paid_through_account and self.asset_accounts:
                 paid_through_account = self.asset_accounts[0]
                 paid_through_id = paid_through_account.get('account_id')
                 logger.info(f"Using first available asset account for payment: {paid_through_account.get('account_name')}")
+            
+            # If no payment account was found, return a descriptive error
+            if not paid_through_id:
+                alternatives = ", ".join([acc.get('account_name', '') for acc in self.asset_accounts[:10]])
+                error_msg = f"Could not find a valid payment account"
+                if alternatives:
+                    error_msg += f". Available payment accounts: {alternatives}"
+                else:
+                    error_msg += ". No payment accounts available - please ensure Zoho Books is properly configured with cash or bank accounts."
+                
+                return {
+                    "status": "error", 
+                    "text": error_msg
+                }
             
             # Ensure token is valid
             if not self.token_manager.ensure_valid_token():
