@@ -428,7 +428,7 @@ Parse the message and extract the following information in JSON format:
     "account_id": string (optional ID from expense accounts list - only include if specified),
     "account_name": string (name of the expense account - use the best match from above),
     "paid_through": string (payment account name - use common names like "BE Cash", "MC Bank", etc.),
-    "date": string (YYYY-MM-DD format, default to today if unspecified),
+    "date": string (YYYY-MM-DD format, MUST default to today's date if unspecified),
     "reference": string (brief description, max 10 words),
     "notes": string (detailed description if provided),
     "currency": string (currency code or symbol if mentioned, e.g., "USD", "EUR", "$", "€")
@@ -440,10 +440,11 @@ IMPORTANT:
 - If no payment account is specified, use "Expense Provisions"
 - Extract any currency information (USD, EUR, €, $, etc.) from the message. Default to USD if not specified.
 - Include the original amount with any currency symbols in the notes.
+- ALWAYS use today's date (current date) unless a different date is explicitly mentioned in the message
 
 Example JSON responses:
 For "I bought 20 brooms worth $30 each":
-{{
+{
   "amount": 600,
   "account_name": "Office Supplies",
   "paid_through": "Expense Provisions",
@@ -451,10 +452,10 @@ For "I bought 20 brooms worth $30 each":
   "reference": "Office supplies purchase",
   "notes": "Purchased 20 brooms at $30 each for office cleaning",
   "currency": "USD"
-}}
+}
 
 For "Paid 500 EUR for office rent":
-{{
+{
   "amount": 500,
   "account_name": "Rent",
   "paid_through": "MC Bank",
@@ -462,7 +463,7 @@ For "Paid 500 EUR for office rent":
   "reference": "Monthly office rent",
   "notes": "Payment for office rent in euros",
   "currency": "EUR"
-}}
+}
 
 Return ONLY valid JSON with no additional text.
 """

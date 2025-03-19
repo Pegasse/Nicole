@@ -243,7 +243,19 @@ class ExpenseHandler:
                     }
             
             # Other expense details
-            date_str = parsed_data.get("date", date.today().isoformat())
+            date_str = parsed_data.get("date", "")
+            
+            # Ensure date is today's date if not specified or improperly formatted
+            if not date_str or not re.match(r'^\d{4}-\d{2}-\d{2}$', date_str):
+                today = date.today().isoformat()
+                if date_str:
+                    logger.warning(f"Ignoring invalid date format: {date_str}, using today's date: {today}")
+                else:
+                    logger.info(f"No date specified, using today's date: {today}")
+                date_str = today
+            else:
+                logger.info(f"Using specified date: {date_str}")
+            
             notes = f"{original_notes}\nCurrency: {currency_code}" if original_notes else f"Currency: {currency_code}"
             
             # Handle paid_through account (payment account)
