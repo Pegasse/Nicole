@@ -4,8 +4,8 @@ import certifi
 import ssl
 import urllib3
 import socket
-from operations.fund_transfer import FundTransferHandler
-from operations.expense import ExpenseHandler
+from operations.create.fund_transfer import FundTransferHandler
+from operations.create.expense import ExpenseHandler
 from config import Config, logger
 from utils.token_manager import ZohoTokenManager
 import json
