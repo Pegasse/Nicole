@@ -1,6 +1,7 @@
 import logging
 from datetime import date
 import requests
+import re
 from config import Config, logger
 
 class ExpenseHandler:
@@ -13,6 +14,16 @@ class ExpenseHandler:
         self.expense_accounts = self.token_manager.get_expense_accounts()
         # Get cash and bank accounts
         self.cash_bank_accounts = self.token_manager.get_asset_accounts()
+        
+        # Get available currencies
+        self.currencies = self.token_manager.get_currencies()
+        # Store currency details for quick lookup
+        self.currency_by_code = {}
+        self.currency_by_symbol = {}
+        self.currency_by_name = {}
+        
+        # Process currencies for lookup
+        self._process_currencies()
         
         # Create lookup dictionaries - ensure we don't crash if accounts are empty
         self.expense_account_by_id = {acc["account_id"]: acc for acc in self.expense_accounts} if self.expense_accounts else {}
@@ -29,10 +40,79 @@ class ExpenseHandler:
             "buying petty cash": ["buying petty cash", "petty cash", "buying cash", "petty"]
         }
         
-        logger.info(f"Expense Handler initialized with {len(self.expense_accounts)} expense accounts and {len(self.cash_bank_accounts)} payment accounts")
+        logger.info(f"Expense Handler initialized with {len(self.expense_accounts)} expense accounts, {len(self.cash_bank_accounts)} payment accounts, and {len(self.currencies)} currencies")
         # Initialize account mappings
         self.refresh_accounts()
     
+    def _process_currencies(self):
+        """Process the currencies from Zoho for easy lookup"""
+        if not self.currencies:
+            logger.warning("No currencies fetched from Zoho. Will default to USD.")
+            # Add a default USD entry
+            self.currency_by_code["USD"] = {"currency_code": "USD", "currency_symbol": "$", "currency_name": "US Dollar"}
+            self.currency_by_symbol["$"] = {"currency_code": "USD", "currency_symbol": "$", "currency_name": "US Dollar"}
+            self.currency_by_name["us dollar"] = {"currency_code": "USD", "currency_symbol": "$", "currency_name": "US Dollar"}
+            return
+            
+        for currency in self.currencies:
+            code = currency.get("currency_code", "")
+            symbol = currency.get("currency_symbol", "")
+            name = currency.get("currency_name", "")
+            
+            if code:
+                self.currency_by_code[code] = currency
+            if symbol:
+                self.currency_by_symbol[symbol] = currency
+            if name:
+                self.currency_by_name[name.lower()] = currency
+                
+        logger.info(f"Processed {len(self.currency_by_code)} currency codes, {len(self.currency_by_symbol)} symbols, and {len(self.currency_by_name)} names")
+        
+    def _detect_currency(self, text, amount_str):
+        """Detect currency from text and amount string.
+        Returns a tuple (currency_code, cleaned_amount_value)
+        """
+        # Default to USD
+        default_currency = "USD"
+        
+        if not text and not amount_str:
+            return default_currency, 0
+            
+        # First check if there's a currency symbol in the amount
+        if amount_str:
+            # Remove commas from amount for processing
+            amount_str = amount_str.replace(",", "")
+            # Check for currency symbols
+            for symbol in self.currency_by_symbol:
+                if symbol in amount_str:
+                    currency = self.currency_by_symbol[symbol]
+                    currency_code = currency.get("currency_code", default_currency)
+                    # Remove the symbol to get clean amount
+                    clean_amount = amount_str.replace(symbol, "").strip()
+                    logger.info(f"Detected currency {currency_code} from symbol {symbol} in amount {amount_str}")
+                    return currency_code, clean_amount
+        
+        # Check for currency codes in the text (USD, EUR, etc.)
+        if text:
+            # Look for 3-letter currency codes
+            currency_codes = re.findall(r'\b([A-Z]{3})\b', text.upper())
+            for code in currency_codes:
+                if code in self.currency_by_code:
+                    logger.info(f"Detected currency code {code} in text")
+                    return code, amount_str
+                    
+            # Look for currency names in the text
+            text_lower = text.lower()
+            for name, currency in self.currency_by_name.items():
+                if name in text_lower:
+                    code = currency.get("currency_code", default_currency)
+                    logger.info(f"Detected currency {code} from name {name} in text")
+                    return code, amount_str
+        
+        # If no currency detected, default to USD
+        logger.info(f"No currency detected in text or amount, defaulting to {default_currency}")
+        return default_currency, amount_str
+
     def refresh_accounts(self):
         """Refresh account information from Zoho Books"""
         try:
@@ -122,11 +202,33 @@ class ExpenseHandler:
                     "text": error_msg
                 }
             
-            # Extract other expense details
-            amount = float(parsed_data["amount"])
-            date_str = parsed_data.get("date", date.today().isoformat())
+            # Extract and process amount with currency
+            amount_str = str(parsed_data.get("amount", "0"))
+            original_notes = parsed_data.get("notes", "")
             reference = parsed_data.get("reference", "Expense")
-            notes = parsed_data.get("notes", "")
+            
+            # Detect currency from text and amount string
+            all_text = f"{reference} {original_notes}"
+            currency_code, cleaned_amount = self._detect_currency(all_text, amount_str)
+            
+            # Convert cleaned amount to float
+            try:
+                amount = float(cleaned_amount)
+            except ValueError:
+                # If conversion fails, remove any non-numeric characters except decimal point
+                cleaned_amount = re.sub(r'[^\d.]', '', cleaned_amount)
+                try:
+                    amount = float(cleaned_amount)
+                except ValueError:
+                    logger.error(f"Could not parse amount from {amount_str}")
+                    return {
+                        "status": "error",
+                        "text": f"Could not determine the expense amount from '{amount_str}'"
+                    }
+            
+            # Other expense details
+            date_str = parsed_data.get("date", date.today().isoformat())
+            notes = f"{original_notes}\nCurrency: {currency_code}" if original_notes else f"Currency: {currency_code}"
             
             # Handle paid_through account (payment account)
             paid_through = parsed_data.get("paid_through", "")
@@ -200,7 +302,8 @@ class ExpenseHandler:
                 "amount": amount,
                 "date": date_str,
                 "reference_number": reference,
-                "description": notes
+                "description": notes,
+                "currency_id": currency_code
             }
             
             # Add paid_through_account_id if available
@@ -227,9 +330,9 @@ class ExpenseHandler:
                 
                 # Create success message
                 if paid_through_name:
-                    response_text = f"@{sender_name}: Successfully recorded expense of ${amount} to {display_account_name} paid through {paid_through_name}. Expense ID: {expense_id}"
+                    response_text = f"✅ Successfully recorded expense of {currency_code} {amount} to {display_account_name} paid through {paid_through_name}. Expense ID: {expense_id}"
                 else:
-                    response_text = f"@{sender_name}: Successfully recorded expense of ${amount} to {display_account_name}. Expense ID: {expense_id}"
+                    response_text = f"✅ Successfully recorded expense of {currency_code} {amount} to {display_account_name}. Expense ID: {expense_id}"
                 
                 logger.info(response_text)
                 return {"status": "success", "text": response_text}

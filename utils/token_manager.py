@@ -246,6 +246,39 @@ class ZohoTokenManager:
             
         return accounts
 
+    def get_currencies(self):
+        """Fetch available currencies from Zoho Books API."""
+        if not self.ensure_valid_token():
+            logger.error("Failed to get valid token for currencies")
+            return []
+            
+        url = f"{Config.ZOHO_API_URL}/settings/currencies?organization_id={Config.ZOHO_ORG_ID}"
+        headers = {
+            "Authorization": f"Zoho-oauthtoken {self.get_token()}",
+            "Content-Type": "application/json"
+        }
+        
+        logger.info(f"Fetching currencies from Zoho Books API")
+        
+        try:
+            response = requests.get(url, headers=headers)
+            
+            if response.status_code == 200:
+                data = response.json()
+                if "currencies" in data:
+                    currencies = data["currencies"]
+                    logger.info(f"Successfully fetched {len(currencies)} currencies")
+                    return currencies
+                else:
+                    logger.warning(f"No currencies found in response: {data}")
+                    return []
+            else:
+                logger.error(f"Failed to fetch currencies: {response.status_code} - {response.text}")
+                return []
+        except Exception as e:
+            logger.error(f"Error fetching currencies: {str(e)}")
+            return []
+
     def get_accounts_by_type(self, account_type):
         """Fetch accounts of a specific type from Zoho Books API with detailed error checking."""
         if not self.ensure_valid_token():
