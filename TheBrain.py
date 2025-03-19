@@ -431,14 +431,14 @@ Parse the message and extract the following information in JSON format:
     "date": string (YYYY-MM-DD format, MUST default to today's date if unspecified),
     "reference": string (brief description, max 10 words),
     "notes": string (detailed description if provided),
-    "currency": string (currency code or symbol if mentioned, e.g., "USD", "EUR", "$", "€")
+    "currency_id": string (the currency ID if a currency is mentioned - DO NOT use symbols, codes, or names)
 }}
 
 IMPORTANT: 
 - Common payment account names include: "Expense Provisions", "MC Cash", "BE Cash", "Buying Petty Cash"
 - For expenses related to a specific company (MC, BE, etc.), use the corresponding cash account
 - If no payment account is specified, use "Expense Provisions"
-- Extract any currency information (USD, EUR, €, $, etc.) from the message. Default to USD if not specified.
+- If a currency is mentioned, extract the proper currency ID. DO NOT include currency_id field if no currency is specified.
 - Include the original amount with any currency symbols in the notes.
 - ALWAYS use today's date (current date) unless a different date is explicitly mentioned in the message
 
@@ -451,7 +451,7 @@ For "I bought 20 brooms worth $30 each":
   "date": "2025-03-18",
   "reference": "Office supplies purchase",
   "notes": "Purchased 20 brooms at $30 each for office cleaning",
-  "currency": "USD"
+  "currency_id": "1234567890" // Only if USD's currency ID is known
 }
 
 For "Paid 500 EUR for office rent":
@@ -462,7 +462,7 @@ For "Paid 500 EUR for office rent":
   "date": "2025-03-18",
   "reference": "Monthly office rent",
   "notes": "Payment for office rent in euros",
-  "currency": "EUR"
+  "currency_id": "9876543210" // Only if EUR's currency ID is known
 }
 
 Return ONLY valid JSON with no additional text.

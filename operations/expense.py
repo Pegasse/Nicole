@@ -210,37 +210,45 @@ class ExpenseHandler:
             original_notes = parsed_data.get("notes", "")
             reference = parsed_data.get("reference", "Expense")
             
-            # Extract currency code if provided directly in the parsed data
-            parsed_currency = parsed_data.get("currency", "")
-            
-            # Detect currency from text and amount string
-            all_text = f"{reference} {original_notes} {parsed_currency}"
-            currency_info, cleaned_amount, currency_detected = self._detect_currency(all_text, amount_str)
-            
-            # Get currency details
-            currency_code = currency_info.get("currency_code", "USD")  
-            currency_id = currency_info.get("currency_id")
-            
-            # Log currency details for debugging
-            if currency_detected and currency_id:
-                logger.info(f"Using detected currency: Code={currency_code}, ID={currency_id}")
+            # Check if currency_id is directly provided in the parsed data
+            direct_currency_id = parsed_data.get("currency_id")
+            if direct_currency_id:
+                logger.info(f"Using currency_id directly from parsed data: {direct_currency_id}")
+                currency_detected = True
+                currency_id = direct_currency_id
+                # Try to find currency code for display purposes
+                currency_code = "Unknown"
+                for code, curr in self.currency_by_code.items():
+                    if curr.get("currency_id") == direct_currency_id:
+                        currency_code = code
+                        break
             else:
-                logger.info(f"No specific currency detected, will use organization default")
+                # Try to detect currency if not directly provided
+                parsed_currency = parsed_data.get("currency", "")
+                all_text = f"{reference} {original_notes} {parsed_currency}"
+                currency_info, cleaned_amount, currency_detected = self._detect_currency(all_text, amount_str)
+                
+                # Get currency details
+                currency_code = currency_info.get("currency_code", "USD")  
+                currency_id = currency_info.get("currency_id")
+                
+                # Log currency details for debugging
+                if currency_detected and currency_id:
+                    logger.info(f"Detected currency: Code={currency_code}, ID={currency_id}")
+                else:
+                    logger.info(f"No specific currency detected, will use organization default")
             
-            # Convert cleaned amount to float
+            # Convert amount to float
             try:
+                # Remove any currency symbols or non-numeric characters except decimal point
+                cleaned_amount = re.sub(r'[^\d.]', '', amount_str)
                 amount = float(cleaned_amount)
             except ValueError:
-                # If conversion fails, remove any non-numeric characters except decimal point
-                cleaned_amount = re.sub(r'[^\d.]', '', cleaned_amount)
-                try:
-                    amount = float(cleaned_amount)
-                except ValueError:
-                    logger.error(f"Could not parse amount from {amount_str}")
-                    return {
-                        "status": "error",
-                        "text": f"Could not determine the expense amount from '{amount_str}'"
-                    }
+                logger.error(f"Could not parse amount from {amount_str}")
+                return {
+                    "status": "error",
+                    "text": f"Could not determine the expense amount from '{amount_str}'"
+                }
             
             # Other expense details
             date_str = parsed_data.get("date", "")
@@ -333,9 +341,10 @@ class ExpenseHandler:
                 "description": notes
             }
             
-            # Only add currency_id if a currency was explicitly detected
+            # Only add currency_id if one was provided or detected
             if currency_detected and currency_id:
                 payload["currency_id"] = currency_id
+                logger.info(f"Adding currency_id to payload: {currency_id}")
                 
             # Add paid_through_account_id if available
             if paid_through_id:
