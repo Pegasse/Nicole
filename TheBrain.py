@@ -13,6 +13,7 @@ import os
 import sys
 from datetime import datetime, timedelta
 from dotenv import load_dotenv
+import re
 
 # Add the current directory to the path to import local modules
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -274,21 +275,53 @@ class GrokAPIClient:
             result = response.json()
             parsed_data_text = result["choices"][0]["message"]["content"]
             
+            # Log raw text before attempting to parse
+            logger.debug(f"Raw response text from Grok: {parsed_data_text}")
+            
             # Extract JSON from the response
             json_start = parsed_data_text.find("{")
             json_end = parsed_data_text.rfind("}")
             
             if json_start != -1 and json_end != -1 and json_end > json_start:
                 json_str = parsed_data_text[json_start:json_end+1]
+                
+                # Clean up any comments before parsing
                 try:
-                    parsed_data = json.loads(json_str)
-                except json.JSONDecodeError:
-                    parsed_data = json.loads(parsed_data_text)
+                    # Remove any // comments that might be in the JSON
+                    json_str_no_comments = re.sub(r'//.*', '', json_str)
+                    parsed_data = json.loads(json_str_no_comments)
+                    logger.info("Successfully parsed JSON after removing comments")
+                    return parsed_data
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Failed to parse JSON after removing comments: {e}")
+                    
+                    try:
+                        # Try the original JSON string
+                        parsed_data = json.loads(json_str)
+                        return parsed_data
+                    except json.JSONDecodeError as e2:
+                        logger.error(f"Failed to parse both cleaned and original JSON: {e2}")
+                        # Use a default response with placeholder values
+                        parsed_data = {
+                            "error": "Failed to parse response",
+                            "original_response": parsed_data_text
+                        }
+                        return parsed_data
             else:
-                parsed_data = json.loads(parsed_data_text)
+                # If no JSON brackets found, try the whole string
+                try:
+                    parsed_data = json.loads(parsed_data_text)
+                except json.JSONDecodeError as e:
+                    logger.error(f"Failed to parse response as JSON: {e}")
+                    logger.error(f"Response content: {parsed_data_text}")
+                    # Use a default response with placeholder values
+                    parsed_data = {
+                        "error": "Failed to parse response",
+                        "original_response": parsed_data_text
+                    }
                 
             return parsed_data
-            
+                
         except Exception as e:
             logger.error(f"Error parsing message: {str(e)}")
             raise
@@ -450,8 +483,7 @@ For "I bought 20 brooms worth $30 each":
   "paid_through": "Expense Provisions",
   "date": "2025-03-18",
   "reference": "Office supplies purchase",
-  "notes": "Purchased 20 brooms at $30 each for office cleaning",
-  "currency_id": "1234567890" // Only if USD's currency ID is known
+  "notes": "Purchased 20 brooms at $30 each for office cleaning"
 }
 
 For "Paid 500 EUR for office rent":
@@ -461,8 +493,7 @@ For "Paid 500 EUR for office rent":
   "paid_through": "MC Bank",
   "date": "2025-03-18",
   "reference": "Monthly office rent",
-  "notes": "Payment for office rent in euros",
-  "currency_id": "9876543210" // Only if EUR's currency ID is known
+  "notes": "Payment for office rent in euros"
 }
 
 Return ONLY valid JSON with no additional text.
@@ -473,6 +504,18 @@ Return ONLY valid JSON with no additional text.
                 # Log the parsed data for debugging
                 try:
                     logger.info(f"Original message: {message}")
+                    # Check if parsed_data is already a dict or if it's a string that needs parsing
+                    if isinstance(parsed_data, str):
+                        logger.info(f"Raw response from Grok (as string): {parsed_data}")
+                        # Clean up any potential comments in the JSON
+                        try:
+                            # Remove any // comments that might be in the JSON
+                            cleaned_json = re.sub(r'//.*', '', parsed_data)
+                            parsed_data = json.loads(cleaned_json)
+                            logger.info("Successfully cleaned and parsed JSON response")
+                        except json.JSONDecodeError as e:
+                            logger.error(f"Error parsing JSON after cleaning: {e}")
+                            
                     logger.info(f"Parsed data from Grok: {json.dumps(parsed_data, indent=2)}")
                     
                     # Log specific fields that might cause issues
