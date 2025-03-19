@@ -3,6 +3,7 @@ from datetime import date
 import requests
 import re
 from config import Config, logger
+import json
 
 class ExpenseHandler:
     """Handler for processing expense entries"""
@@ -49,9 +50,9 @@ class ExpenseHandler:
         if not self.currencies:
             logger.warning("No currencies fetched from Zoho. Will default to USD.")
             # Add a default USD entry
-            self.currency_by_code["USD"] = {"currency_code": "USD", "currency_symbol": "$", "currency_name": "US Dollar"}
-            self.currency_by_symbol["$"] = {"currency_code": "USD", "currency_symbol": "$", "currency_name": "US Dollar"}
-            self.currency_by_name["us dollar"] = {"currency_code": "USD", "currency_symbol": "$", "currency_name": "US Dollar"}
+            self.currency_by_code["USD"] = {"currency_code": "USD", "currency_symbol": "$", "currency_name": "US Dollar", "currency_id": "USD"}
+            self.currency_by_symbol["$"] = {"currency_code": "USD", "currency_symbol": "$", "currency_name": "US Dollar", "currency_id": "USD"}
+            self.currency_by_name["us dollar"] = {"currency_code": "USD", "currency_symbol": "$", "currency_name": "US Dollar", "currency_id": "USD"}
             return
             
         for currency in self.currencies:
@@ -70,13 +71,16 @@ class ExpenseHandler:
         
     def _detect_currency(self, text, amount_str):
         """Detect currency from text and amount string.
-        Returns a tuple (currency_code, cleaned_amount_value)
+        Returns a tuple (currency_info, cleaned_amount_value, was_detected) where:
+        - currency_info contains currency details if found
+        - cleaned_amount_value is the amount without currency symbols
+        - was_detected is a boolean indicating if a currency was explicitly detected
         """
-        # Default to USD
-        default_currency = "USD"
+        # Default currency info (only used if no currency is detected)
+        default_currency = {"currency_code": "USD"}
         
         if not text and not amount_str:
-            return default_currency, 0
+            return default_currency, 0, False
             
         # First check if there's a currency symbol in the amount
         if amount_str:
@@ -86,11 +90,10 @@ class ExpenseHandler:
             for symbol in self.currency_by_symbol:
                 if symbol in amount_str:
                     currency = self.currency_by_symbol[symbol]
-                    currency_code = currency.get("currency_code", default_currency)
                     # Remove the symbol to get clean amount
                     clean_amount = amount_str.replace(symbol, "").strip()
-                    logger.info(f"Detected currency {currency_code} from symbol {symbol} in amount {amount_str}")
-                    return currency_code, clean_amount
+                    logger.info(f"Detected currency {currency.get('currency_code')} from symbol {symbol} in amount {amount_str}")
+                    return currency, clean_amount, True
         
         # Check for currency codes in the text (USD, EUR, etc.)
         if text:
@@ -98,20 +101,20 @@ class ExpenseHandler:
             currency_codes = re.findall(r'\b([A-Z]{3})\b', text.upper())
             for code in currency_codes:
                 if code in self.currency_by_code:
+                    currency = self.currency_by_code[code]
                     logger.info(f"Detected currency code {code} in text")
-                    return code, amount_str
+                    return currency, amount_str, True
                     
             # Look for currency names in the text
             text_lower = text.lower()
             for name, currency in self.currency_by_name.items():
                 if name in text_lower:
-                    code = currency.get("currency_code", default_currency)
-                    logger.info(f"Detected currency {code} from name {name} in text")
-                    return code, amount_str
+                    logger.info(f"Detected currency {currency.get('currency_code')} from name {name} in text")
+                    return currency, amount_str, True
         
-        # If no currency detected, default to USD
-        logger.info(f"No currency detected in text or amount, defaulting to {default_currency}")
-        return default_currency, amount_str
+        # If no currency detected, default to USD without setting currency_id
+        logger.info(f"No currency detected in text or amount, defaulting to USD but omitting currency_id")
+        return default_currency, amount_str, False
 
     def refresh_accounts(self):
         """Refresh account information from Zoho Books"""
@@ -207,9 +210,22 @@ class ExpenseHandler:
             original_notes = parsed_data.get("notes", "")
             reference = parsed_data.get("reference", "Expense")
             
+            # Extract currency code if provided directly in the parsed data
+            parsed_currency = parsed_data.get("currency", "")
+            
             # Detect currency from text and amount string
-            all_text = f"{reference} {original_notes}"
-            currency_code, cleaned_amount = self._detect_currency(all_text, amount_str)
+            all_text = f"{reference} {original_notes} {parsed_currency}"
+            currency_info, cleaned_amount, currency_detected = self._detect_currency(all_text, amount_str)
+            
+            # Get currency details
+            currency_code = currency_info.get("currency_code", "USD")  
+            currency_id = currency_info.get("currency_id")
+            
+            # Log currency details for debugging
+            if currency_detected and currency_id:
+                logger.info(f"Using detected currency: Code={currency_code}, ID={currency_id}")
+            else:
+                logger.info(f"No specific currency detected, will use organization default")
             
             # Convert cleaned amount to float
             try:
@@ -302,13 +318,19 @@ class ExpenseHandler:
                 "amount": amount,
                 "date": date_str,
                 "reference_number": reference,
-                "description": notes,
-                "currency_id": currency_code
+                "description": notes
             }
             
+            # Only add currency_id if a currency was explicitly detected
+            if currency_detected and currency_id:
+                payload["currency_id"] = currency_id
+                
             # Add paid_through_account_id if available
             if paid_through_id:
                 payload["paid_through_account_id"] = paid_through_id
+            
+            # Log the payload for debugging
+            logger.info(f"Sending expense payload to Zoho: {json.dumps(payload)}")
                     
             # Make the API request
             response = requests.post(url, headers=headers, json=payload)
@@ -328,11 +350,13 @@ class ExpenseHandler:
                 if paid_through_account:
                     paid_through_name = paid_through_account.get('account_name', '')
                 
-                # Create success message
+                # Create success message with currency information
+                currency_text = f"{currency_code} " if currency_detected else ""
+                
                 if paid_through_name:
-                    response_text = f"✅ Successfully recorded expense of {currency_code} {amount} to {display_account_name} paid through {paid_through_name}. Expense ID: {expense_id}"
+                    response_text = f"✅ Successfully recorded expense of {currency_text}{amount} to {display_account_name} paid through {paid_through_name}. Expense ID: {expense_id}"
                 else:
-                    response_text = f"✅ Successfully recorded expense of {currency_code} {amount} to {display_account_name}. Expense ID: {expense_id}"
+                    response_text = f"✅ Successfully recorded expense of {currency_text}{amount} to {display_account_name}. Expense ID: {expense_id}"
                 
                 logger.info(response_text)
                 return {"status": "success", "text": response_text}
