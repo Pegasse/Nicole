@@ -431,7 +431,7 @@ Parse the message and extract the following information in JSON format:
     "date": string (YYYY-MM-DD format, MUST default to today's date if unspecified),
     "reference": string (brief description, max 10 words),
     "notes": string (detailed description if provided),
-    "currency_id": string (the currency ID if a currency is mentioned - DO NOT use symbols, codes, or names)
+    "currency_id": string (ONLY include if a specific currency ID is known - DO NOT include this field with codes like "USD" or symbols like "$", completely omit this field if you don't know the exact currency ID)
 }}
 
 IMPORTANT: 
@@ -469,6 +469,21 @@ Return ONLY valid JSON with no additional text.
 """
                 
                 parsed_data = self.grok_client.parse_message_with_system_content(message, system_content)
+                
+                # Log the parsed data for debugging
+                try:
+                    logger.info(f"Original message: {message}")
+                    logger.info(f"Parsed data from Grok: {json.dumps(parsed_data, indent=2)}")
+                    
+                    # Log specific fields that might cause issues
+                    logger.info(f"amount: {parsed_data.get('amount')} (type: {type(parsed_data.get('amount')).__name__})")
+                    logger.info(f"date: {parsed_data.get('date')} (type: {type(parsed_data.get('date')).__name__})")
+                    logger.info(f"account_name: {parsed_data.get('account_name')}")
+                    logger.info(f"paid_through: {parsed_data.get('paid_through')}")
+                    logger.info(f"currency_id: {parsed_data.get('currency_id')}")
+                except Exception as e:
+                    logger.error(f"Error logging parsed data: {str(e)}")
+                
                 # Step 10: Process expense
                 result = self.expense_handler.process(parsed_data, sender_name)
 

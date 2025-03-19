@@ -268,6 +268,16 @@ class ZohoTokenManager:
                 if "currencies" in data:
                     currencies = data["currencies"]
                     logger.info(f"Successfully fetched {len(currencies)} currencies")
+                    
+                    # Log some sample currencies for debugging
+                    if currencies:
+                        for i, currency in enumerate(currencies[:5]):  # Log the first 5 currencies
+                            logger.info(f"Currency {i+1}: " +
+                                      f"ID={currency.get('currency_id', 'None')}, " +
+                                      f"Code={currency.get('currency_code', 'None')}, " +
+                                      f"Symbol={currency.get('currency_symbol', 'None')}, " +
+                                      f"Name={currency.get('currency_name', 'None')}")
+                    
                     return currencies
                 else:
                     logger.warning(f"No currencies found in response: {data}")

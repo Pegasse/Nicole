@@ -170,6 +170,9 @@ class ExpenseHandler:
     def process(self, parsed_data, sender_name):
         """Process the parsed expense data and create an expense in Zoho Books."""
         try:
+            # Log the full parsed data for debugging
+            logger.info(f"Expense Handler received parsed data: {json.dumps(parsed_data, indent=2)}")
+            
             # Extract and validate expense account ID
             account_id = parsed_data.get("account_id")
             account_name = parsed_data.get("account_name", "")
