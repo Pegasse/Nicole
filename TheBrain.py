@@ -401,31 +401,28 @@ class Brain:
                 with open("instructions/Internal Fund Transfer.txt", "r") as f:
                     instructions = f.read()
                 
-                # Step 5: Define system content with Zoho accounts
-                system_content = f"""{instructions}
-
-Available cash and bank accounts for transfers:
-{cash_bank_account_list}
-
-Extract the following information from the message in JSON format:
-{{
-    "amount": number (positive value without currency symbols),
-    "from_account": string (source account name - use common names like "BE Cash", "MC Bank", etc.),
-    "to_account": string (destination account name - use common names like "BE Cash", "MC Bank", etc.),
-    "reference": string (optional brief reason for transfer)
-}}
-
-Common account names you can use:
-- MC Cash - Microconcept's cash account
-- MC Bank - Microconcept's bank account 
-- BE Cash - Bellissima's cash account
-- BE Bank - Bellissima's bank account
-- MCAsie Cash - The purchasing office cash account
-- Cash In Transit - Used for transfers to MCAsie
-- Expense Provisions - Main cash account for expenses
-
-Return ONLY valid JSON format. Do not add any explanations or extra text.
-"""
+                # Step 5: Define system content with Zoho accounts - use string concatenation to avoid f-string issues
+                system_content = (
+                    instructions + "\n\n"
+                    "Available cash and bank accounts for transfers:\n" +
+                    cash_bank_account_list + "\n\n"
+                    "Extract the following information from the message in JSON format:\n"
+                    "{\n"
+                    "    \"amount\": number (positive value without currency symbols),\n"
+                    "    \"from_account\": string (source account name - use common names like \"BE Cash\", \"MC Bank\", etc.),\n"
+                    "    \"to_account\": string (destination account name - use common names like \"BE Cash\", \"MC Bank\", etc.),\n"
+                    "    \"reference\": string (optional brief reason for transfer)\n"
+                    "}\n\n"
+                    "Common account names you can use:\n"
+                    "- MC Cash - Microconcept's cash account\n"
+                    "- MC Bank - Microconcept's bank account \n"
+                    "- BE Cash - Bellissima's cash account\n"
+                    "- BE Bank - Bellissima's bank account\n"
+                    "- MCAsie Cash - The purchasing office cash account\n"
+                    "- Cash In Transit - Used for transfers to MCAsie\n"
+                    "- Expense Provisions - Main cash account for expenses\n\n"
+                    "Return ONLY valid JSON format. Do not add any explanations or extra text."
+                )
                 parsed_data = self.grok_client.parse_message_with_system_content(message, system_content)
                 # Step 6: Process fund transfer
                 result = self.fund_transfer_handler.process(parsed_data, sender_name)
@@ -447,66 +444,61 @@ Return ONLY valid JSON format. Do not add any explanations or extra text.
                     instructions = f.read()
                 
                 # Step 9: Create system content with fetched accounts
-                system_content = f"""{instructions}
-
-Here are the available expense accounts:
-{expense_account_list}
-
-Here are the available payment accounts (cash & bank):
-{cash_bank_account_list}
-
-Parse the message and extract the following information in JSON format:
-{{
-    "amount": number (positive value without currency symbols),
-    "account_id": string (optional ID from expense accounts list - only include if specified),
-    "account_name": string (name of the expense account - use the best match from above),
-    "paid_through": string (payment account name - use common names like "BE Cash", "MC Bank", etc.),
-    "date": string (YYYY-MM-DD format, MUST default to today's date if unspecified),
-    "reference": string (brief description, max 10 words),
-    "notes": string (detailed description if provided),
-    "currency_id": string (ONLY include if a specific currency ID is known - DO NOT include this field with codes like "USD" or symbols like "$", completely omit this field if you don't know the exact currency ID)
-}}
-
-IMPORTANT: 
-- Common payment account names include: "Expense Provisions", "MC Cash", "BE Cash", "Buying Petty Cash"
-- For expenses related to a specific company (MC, BE, etc.), use the corresponding cash account
-- If no payment account is specified, use "Expense Provisions"
-- If a currency is mentioned, extract the proper currency ID. DO NOT include currency_id field if no currency is specified.
-- Include the original amount with any currency symbols in the notes.
-- ALWAYS use today's date (current date) unless a different date is explicitly mentioned in the message
-
-Example JSON responses:
-For "I bought 20 brooms worth $30 each":
-{
-  "amount": 600,
-  "account_name": "Office Supplies",
-  "paid_through": "Expense Provisions",
-  "date": "2025-03-18",
-  "reference": "Office supplies purchase",
-  "notes": "Purchased 20 brooms at $30 each for office cleaning"
-}
-
-For "Paid 500 EUR for office rent":
-{
-  "amount": 500,
-  "account_name": "Rent",
-  "paid_through": "MC Bank",
-  "date": "2025-03-18",
-  "reference": "Monthly office rent",
-  "notes": "Payment for office rent in euros"
-}
-
-Return ONLY valid JSON with no additional text.
-"""
+                # Use string concatenation instead of f-strings to avoid JSON brace issues
+                system_content = (
+                    instructions + "\n\n"
+                    "Here are the available expense accounts:\n" +
+                    expense_account_list + "\n\n"
+                    "Here are the available payment accounts (cash & bank):\n" +
+                    cash_bank_account_list + "\n\n"
+                    "Parse the message and extract the following information in JSON format:\n"
+                    "{\n"
+                    "    \"amount\": number (positive value without currency symbols),\n"
+                    "    \"account_id\": string (optional ID from expense accounts list - only include if specified),\n"
+                    "    \"account_name\": string (name of the expense account - use the best match from above),\n"
+                    "    \"paid_through\": string (payment account name - use common names like \"BE Cash\", \"MC Bank\", etc.),\n"
+                    "    \"date\": string (YYYY-MM-DD format, MUST default to today's date if unspecified),\n"
+                    "    \"reference\": string (brief description, max 10 words),\n"
+                    "    \"notes\": string (detailed description if provided),\n"
+                    "    \"currency_id\": string (ONLY include if a specific currency ID is known - DO NOT include this field with codes like \"USD\" or symbols like \"$\", completely omit this field if you don't know the exact currency ID)\n"
+                    "}\n\n"
+                    "IMPORTANT: \n"
+                    "- Common payment account names include: \"Expense Provisions\", \"MC Cash\", \"BE Cash\", \"Buying Petty Cash\"\n"
+                    "- For expenses related to a specific company (MC, BE, etc.), use the corresponding cash account\n"
+                    "- If no payment account is specified, use \"Expense Provisions\"\n"
+                    "- If a currency is mentioned, extract the proper currency ID. DO NOT include currency_id field if no currency is specified.\n"
+                    "- Include the original amount with any currency symbols in the notes.\n"
+                    "- ALWAYS use today's date (current date) unless a different date is explicitly mentioned in the message\n\n"
+                    "Example JSON responses:\n"
+                    "For \"I bought 20 brooms worth $30 each\":\n"
+                    "{\n"
+                    "  \"amount\": 600,\n"
+                    "  \"account_name\": \"Office Supplies\",\n"
+                    "  \"paid_through\": \"Expense Provisions\",\n"
+                    "  \"date\": \"2025-03-18\",\n"
+                    "  \"reference\": \"Office supplies purchase\",\n"
+                    "  \"notes\": \"Purchased 20 brooms at $30 each for office cleaning\"\n"
+                    "}\n\n"
+                    "For \"Paid 500 EUR for office rent\":\n"
+                    "{\n"
+                    "  \"amount\": 500,\n"
+                    "  \"account_name\": \"Rent\",\n"
+                    "  \"paid_through\": \"MC Bank\",\n"
+                    "  \"date\": \"2025-03-18\",\n"
+                    "  \"reference\": \"Monthly office rent\",\n"
+                    "  \"notes\": \"Payment for office rent in euros\"\n"
+                    "}\n\n"
+                    "Return ONLY valid JSON with no additional text."
+                )
                 
                 parsed_data = self.grok_client.parse_message_with_system_content(message, system_content)
                 
                 # Log the parsed data for debugging
                 try:
-                    logger.info(f"Original message: {message}")
+                    logger.info("Original message: %s", message)
                     # Check if parsed_data is already a dict or if it's a string that needs parsing
                     if isinstance(parsed_data, str):
-                        logger.info(f"Raw response from Grok (as string): {parsed_data}")
+                        logger.info("Raw response from Grok (as string): %s", parsed_data)
                         # Clean up any potential comments in the JSON
                         try:
                             # Remove any // comments that might be in the JSON
@@ -514,18 +506,26 @@ Return ONLY valid JSON with no additional text.
                             parsed_data = json.loads(cleaned_json)
                             logger.info("Successfully cleaned and parsed JSON response")
                         except json.JSONDecodeError as e:
-                            logger.error(f"Error parsing JSON after cleaning: {e}")
-                            
-                    logger.info(f"Parsed data from Grok: {json.dumps(parsed_data, indent=2)}")
+                            logger.error("Error parsing JSON after cleaning: %s", str(e))
                     
-                    # Log specific fields that might cause issues
-                    logger.info(f"amount: {parsed_data.get('amount')} (type: {type(parsed_data.get('amount')).__name__})")
-                    logger.info(f"date: {parsed_data.get('date')} (type: {type(parsed_data.get('date')).__name__})")
-                    logger.info(f"account_name: {parsed_data.get('account_name')}")
-                    logger.info(f"paid_through: {parsed_data.get('paid_through')}")
-                    logger.info(f"currency_id: {parsed_data.get('currency_id')}")
+                    # Use %s formatting instead of f-strings to avoid issues with JSON braces        
+                    if parsed_data:
+                        logger.info("Parsed data from Grok: %s", json.dumps(parsed_data, indent=2))
+                        
+                        # Log specific fields that might cause issues
+                        logger.info("amount: %s (type: %s)", 
+                                    parsed_data.get('amount'), 
+                                    type(parsed_data.get('amount')).__name__)
+                        logger.info("date: %s (type: %s)", 
+                                    parsed_data.get('date'), 
+                                    type(parsed_data.get('date')).__name__)
+                        logger.info("account_name: %s", parsed_data.get('account_name'))
+                        logger.info("paid_through: %s", parsed_data.get('paid_through'))
+                        logger.info("currency_id: %s", parsed_data.get('currency_id'))
+                    else:
+                        logger.warning("Parsed data is empty or None")
                 except Exception as e:
-                    logger.error(f"Error logging parsed data: {str(e)}")
+                    logger.error("Error logging parsed data: %s", str(e))
                 
                 # Step 10: Process expense
                 result = self.expense_handler.process(parsed_data, sender_name)
