@@ -1,0 +1,1 @@
+Purchasing is divided into three steps

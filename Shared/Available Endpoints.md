@@ -1,0 +1,34 @@
+List of Available API Endpoints
+
+- contacts
+- contactpersons
+- estimates
+- salesorder
+- invoices
+- recurringinvoices
+- creditnotes
+- customerpayments
+- expenses
+- recurringexpenses
+- retainerinvoices
+- purchaseorder
+- bills
+- recurringbills
+- vendorcredits
+- vendorpayments
+- bankaccounts
+- banktransactions
+- bankrules
+- chartofaccounts
+- journals
+- fixedassets
+- basecurrencyadjustment
+- projects
+- tasks
+- timeentries
+- users
+- items
+- locations
+- currency
+- taxes
+- openingbalance
