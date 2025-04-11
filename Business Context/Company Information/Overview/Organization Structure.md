@@ -19,5 +19,5 @@ Here is the Org Chart for BDMS
 ## Inventory
 ### Purchasing
 #### Purchasing Office (RAC)
-RAC stands for **Responsable Achat Chine**.
+RAC stands for **Responsable Achat Chine**
 This is the primary purchasing officer. This role is based in China.
