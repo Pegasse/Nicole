@@ -1,4 +1,4 @@
-List of Available API Endpoints
+List of Available API Endpoints:
 
 - **Contacts**: Contacts created.
 	- /contacts
